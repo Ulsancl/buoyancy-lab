@@ -1,0 +1,26 @@
+.buoyancy-scene{position:relative;isolation:isolate;overflow:hidden;background:#eff3ec;min-height:360px;border-radius:18px}
+.buoyancy-canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+.buoyancy-overlay{position:absolute;inset:0;pointer-events:none;z-index:2;color:#23494b;font:12px/1.45 "Segoe UI",sans-serif}
+.buoyancy-pose-note{position:absolute;top:12px;left:14px;right:14px;max-width:680px;width:fit-content;padding:8px 12px;border:1px solid #bed4ca;border-radius:9px;background:#f8fbf1ed;box-shadow:0 2px 8px #2848430b;font-weight:650;line-height:1.5}
+.buoyancy-pose-note[data-kind="submerged-reference"]{color:#754d29;background:#fff6e7f5;border-color:#dbbe8d}
+.buoyancy-pose-note[data-kind="neutral-reference"]{color:#50557e;background:#f4f2fff5;border-color:#c7c5e0}
+.buoyancy-force-legend,.buoyancy-pressure-legend{position:absolute;left:14px;right:14px;bottom:32px;width:fit-content;max-width:calc(100% - 28px);padding:6px 9px;background:#f9fbf3ed;border:1px solid #c9d9cd;border-radius:7px;font-variant-numeric:tabular-nums;font-size:11px;font-weight:600}
+.buoyancy-pressure-legend{bottom:65px;color:#2b6972;border-left:7px solid #58c8d9}
+.buoyancy-force-legend[hidden],.buoyancy-pressure-legend[hidden]{display:none}
+.buoyancy-force-zero{position:absolute;left:14px;right:14px;width:fit-content;max-width:calc(100% - 28px);padding:5px 9px;border:1px solid #c9d9cd;border-radius:7px;background:#f9fbf3ed;color:#46655e;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.buoyancy-force-zero[hidden]{display:none}
+.buoyancy-scene-help{position:absolute;bottom:8px;left:15px;right:15px;font-size:10px;letter-spacing:.01em;color:#4d7472}
+.buoyancy-label-layer,.buoyancy-label-leaders{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
+.buoyancy-label-leaders path{fill:none;stroke:#477c79;stroke-width:1.2;opacity:.78}
+.buoyancy-label-leaders circle{fill:#1c888c;stroke:#f5fff7;stroke-width:1.2}
+.buoyancy-label{position:absolute;pointer-events:auto;cursor:pointer;border:1px solid #b4cfc5;border-radius:7px;background:#fbfff4f0;color:#27565a;box-shadow:0 2px 7px #28574b10;padding:5px 8px;line-height:1.35;max-width:180px;white-space:nowrap;font:600 11px/1.4 "Segoe UI",sans-serif}
+.buoyancy-label:hover,.buoyancy-label:focus-visible{outline:2px solid #18969b;outline-offset:2px;background:#fff}
+.buoyancy-label.selected{border-color:#c59150;background:#fff4dd;color:#775529}
+.buoyancy-force-label{font-size:12px;padding:6px 9px;background:#fffff8fa;border-left-width:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.buoyancy-force-label[data-part="force-buoyancy"]{border-color:#389997;color:#146866}
+.buoyancy-force-label[data-part="force-weight"]{border-color:#bb774f;color:#8c4c26}
+.buoyancy-force-label[data-part="force-holder"]{border-color:#9277b7;color:#624493}
+.buoyancy-force-label.selected{background:#fff3d7;box-shadow:0 0 0 1px #d1a56b}
+.buoyancy-label[hidden]{display:none}
+@media(max-width:600px){.buoyancy-pose-note{font-size:11px;left:10px;right:10px;padding:6px 8px;top:10px}.buoyancy-force-legend{font-size:10px;line-height:1.5;bottom:31px;left:10px;right:10px;max-width:calc(100% - 20px)}.buoyancy-pressure-legend{font-size:10px;bottom:80px;left:10px;right:10px}.buoyancy-label{font-size:10px;max-width:150px;padding:5px 6px}.buoyancy-scene-help{font-size:9px;left:11px}}
+@media(max-width:600px){.buoyancy-force-label{font-size:11px;padding:6px 7px;max-width:160px}.buoyancy-force-zero{font-size:10px;left:10px;right:10px;max-width:calc(100% - 20px)}}
