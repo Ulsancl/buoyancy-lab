@@ -25,6 +25,39 @@ export const GEOMETRY_SI = Object.freeze({
   forceWorldPerN:.003, forceColumnXM:.093,
   pressureMaxPa:3000, cameraMinDistanceM:.08, cameraMaxDistanceM:40,
 });
+// Representative external fixture dimensions. These do not add displaced
+// volume, a compliance law, screw travel, or a second force model.
+export const APPARATUS_SI = Object.freeze({
+  railCenterM:Object.freeze([0,.604,-.218]),railSizeM:Object.freeze([.604,.024,.027]),
+  sleeveSizeM:Object.freeze([.070,.045,.043]),guideClearanceM:.0003,
+  clampBoreRadiusM:.0034,screwRadiusM:.0028,padRadiusM:.0055,padThicknessM:.001,padPocketRadiusM:.0058,padPocketDepthM:.001,
+  knobRadiusM:.019,knobLengthM:.014,knobCenterZM:-.180,
+  deckThicknessM:.007,baseThicknessM:.035,footHeightM:.020,
+});
+export function getApparatusGeometry() {
+  const a=APPARATUS_SI,[x,y,z]=a.railCenterM,[L,H,D]=a.railSizeM,[w,h,d]=a.sleeveSizeM,c=a.guideClearanceM;
+  const rail={min:[x-L/2,y-H/2,z-D/2],max:[x+L/2,y+H/2,z+D/2]};
+  const sleeve={min:[x-w/2,y-h/2,z-d/2],max:[x+w/2,y+h/2,z+d/2]};
+  const passage={min:[-w/2,rail.min[1]-c,rail.min[2]-c],max:[w/2,rail.max[1]+c,rail.max[2]+c]};
+  const walls={
+    lower:{min:[...sleeve.min],max:[w/2,passage.min[1],sleeve.max[2]]},
+    upper:{min:[-w/2,passage.max[1],sleeve.min[2]],max:[...sleeve.max]},
+    rear:{min:[-w/2,passage.min[1],sleeve.min[2]],max:[w/2,passage.max[1],passage.min[2]]},
+    front:{min:[-w/2,passage.min[1],passage.max[2]],max:[w/2,passage.max[1],sleeve.max[2]]},
+  };
+  const armTop=sleeve.min[1],floorBottom=-GEOMETRY_SI.floorThicknessM,deckBottom=floorBottom-a.deckThicknessM,baseBottom=deckBottom-a.baseThicknessM;
+  return {rail,sleeve,passage,walls,
+    arm:{min:[-.011,armTop-.016,-.2145],max:[.011,armTop,-.0195]},
+    head:{min:[-.0205,.5535,-.0195],max:[.0205,.5785,.0195]},
+    pad:{center:[0,y,rail.max[2]+a.padThicknessM/2],backZM:rail.max[2],frontZM:rail.max[2]+a.padThicknessM},
+    screw:{center:[0,y,(rail.max[2]+a.padThicknessM+a.knobCenterZM-a.knobLengthM/2)/2],minZM:rail.max[2]+a.padThicknessM,maxZM:a.knobCenterZM-a.knobLengthM/2},
+    floor:{min:[-.25,floorBottom,-.175],max:[.25,0,.175]},
+    deck:{min:[-.31,deckBottom,-.235],max:[.31,floorBottom,.235]},
+    base:{min:[-.31,baseBottom,-.235],max:[.31,deckBottom,.235]},
+    footTopM:baseBottom,footBottomM:baseBottom-a.footHeightM,groundYM:baseBottom-a.footHeightM,
+    framePadBottomM:floorBottom,
+  };
+}
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const box=(min,max)=>({min,max});
 const volume=shape=>shape.max.reduce((product,value,i)=>product*(value-shape.min[i]),1);
