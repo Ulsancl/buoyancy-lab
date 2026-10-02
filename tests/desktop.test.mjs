@@ -292,6 +292,44 @@ try {
     assert.equal(await fs.readFile(path.join(originalDirectory, 'observation.json'), 'utf8'), original);
     assert.equal(await fs.readFile(projectPath, 'utf8'), original);
   });
+  await check('native arbitrary SI import keeps exact L/cm conditions on blur and writes the original schema with live pressure details', async () => {
+    const original = await project(), precise = structuredClone(original);
+    precise.experiment.config = { bodyMassKg: .4567890123, bodyVolumeM3: .000514014014, fluidDensityKgM3: 1023.4567891234, mode: 'held', heldBottomM: .020205205204 };
+    const source = path.join(evidence, '임의 정밀도 원본.buoyancy.json'), destination = path.join(evidence, '임의 정밀도 저장.buoyancy.json');
+    const raw = '\ufeff' + JSON.stringify(precise, null, 2); await fs.writeFile(source, raw);
+    await openDialog(source); await freshToast(() => page.locator('#open-project').click(), '복원');
+    for (const id of ['mass', 'volume', 'density', 'height']) { await page.locator(`#${id}-number`).focus(); await page.keyboard.press('Tab'); }
+    sameProject(await project(), precise);
+    const current = await state(), detail = await page.evaluate(() => window.buoyancyLab.getDetail());
+    assert.equal(Number(await page.locator('[data-detail-value="balance.pressureResultantN.y"]').getAttribute('data-raw')), detail.balance.pressureResultantN.y);
+    assert.ok(Math.abs(detail.balance.pressureResultantN.y - current.snapshot.buoyancyN) < 1e-10);
+    assert.equal(Number(await page.locator('#profile-cp').getAttribute('data-raw')), detail.faces.right.centerOfPressureM.y);
+    await saveDialog(destination); await freshToast(() => page.locator('#save-project').click(), '저장했습니다');
+    sameProject(JSON.parse(await fs.readFile(destination, 'utf8')), precise);
+    assert.equal(await fs.readFile(source, 'utf8'), raw);
+    assert.deepEqual(Object.keys(JSON.parse(await fs.readFile(destination, 'utf8'))).sort(), ['comparison', 'experiment', 'modelVersion', 'observation', 'schemaVersion', 'type']);
+    await page.evaluate(value => window.buoyancyLab.loadProject(JSON.stringify(value)), original);
+    sameProject(await project(), original);
+  });
+  await check('native save during a sectioned inspection retains the ordinary camera and reload restores the full apparatus', async () => {
+    const original = await project(); await page.locator('#part-select').selectOption('holding-carriage');
+    const before = await project(); await page.locator('#inspect-part').click();
+    const scene = await page.evaluate(() => window.buoyancyLab.sceneDebug());
+    assert.equal(scene.inspection.id, 'holding-carriage'); assert.equal(scene.mechanical.sectionFrontRemoved, true);
+    assert.equal(scene.mechanical.groundVisible, false); assert.notDeepEqual(scene.camera, before.observation.camera);
+    sameProject(await project(), before);
+    const destination = path.join(evidence, '단면 관찰 중 저장.buoyancy.json');
+    await saveDialog(destination); await freshToast(() => page.locator('#save-project').click(), '저장했습니다');
+    sameProject(JSON.parse(await fs.readFile(destination, 'utf8')), before);
+    assert.equal((await page.evaluate(() => window.buoyancyLab.getInspection())).id, 'holding-carriage');
+    await page.screenshot({ path: path.join(evidence, 'native-carriage-inspection.png') });
+    await openDialog(destination); await freshToast(() => page.locator('#open-project').click(), '복원');
+    assert.equal(await page.evaluate(() => window.buoyancyLab.getInspection()), null);
+    assert.equal((await page.evaluate(() => window.buoyancyLab.sceneDebug())).mechanical.groundVisible, true);
+    sameProject(await project(), before);
+    await page.evaluate(value => window.buoyancyLab.loadProject(JSON.stringify(value)), original);
+    sameProject(await project(), original);
+  });
   await check('About version and model scope are accurate and help/view menus are reversible', async () => {
     await app.evaluate(({ dialog }) => {
       globalThis.buoyancyAbout = null;

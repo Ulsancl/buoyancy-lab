@@ -1,8 +1,8 @@
 # 설치와 배포 범위
 
-Buoyancy Lab 1.0은 유한 수조에서 부력·무게·고정력을 관찰하는 교육용 정적 실험 앱입니다. Windows x64 데스크톱 빌드 대상입니다. 이 문서는 설치 방법과 검증 범위를 설명하며, 실제 완료 여부는 해당 릴리스의 결과 기록을 따릅니다.
+Buoyancy Lab 1.1은 유한 수조에서 부력·무게·고정력을 관찰하는 교육용 정적 실험 앱입니다. Windows x64 데스크톱 빌드 대상입니다. 이 문서는 설치 방법과 검증 범위를 설명하며, 실제 완료 여부는 해당 릴리스의 결과 기록을 따릅니다.
 
-설치 파일 이름은 `Buoyancy-Lab-Setup-1.0.0.exe`입니다. [릴리스 페이지](https://github.com/Ulsancl/buoyancy-lab/releases/latest)에서 설치 파일과 별도 `.sha256` 파일을 함께 내려받습니다. 체크섬에는 설치 파일의 SHA256과 정확한 파일 이름이 들어 있습니다. PowerShell의 `Get-FileHash -Algorithm SHA256 -LiteralPath '.\Buoyancy-Lab-Setup-1.0.0.exe'` 결과를 대조하세요.
+설치 파일 이름은 `Buoyancy-Lab-Setup-1.1.0.exe`입니다. [릴리스 페이지](https://github.com/Ulsancl/buoyancy-lab/releases/latest)에서 설치 파일과 별도 `.sha256` 파일을 함께 내려받습니다. 체크섬에는 설치 파일의 SHA256과 정확한 파일 이름이 들어 있습니다. PowerShell의 `Get-FileHash -Algorithm SHA256 -LiteralPath '.\Buoyancy-Lab-Setup-1.1.0.exe'` 결과를 대조하세요.
 
 설치 과정에서 사용자별 설치 경로를 고를 수 있고 시작 메뉴·바탕 화면 바로가기를 생성합니다. 코드 서명이 없어 Windows의 확인 화면이 나타날 수 있습니다. 자동 업데이트 기능은 없으며 새 설치 파일을 직접 실행하는 방식입니다. 앱을 닫고 중요한 실험을 별도 `.buoyancy.json`으로 저장한 뒤 업데이트하세요. 같은 앱 이름과 로컬 저장 origin을 유지하도록 구성합니다.
 

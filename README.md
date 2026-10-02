@@ -1,4 +1,4 @@
-# Buoyancy Lab 1.0
+# Buoyancy Lab 1.1
 
 투명한 수조 안의 물체를 보며 질량·체적·액체 밀도와 부력의 관계를 실험하는 교육용 데스크톱 앱입니다. 조건을 바꾸면 새로운 **정적 상태**를 계산합니다. 가라앉거나 떠오르는 이동 시간은 계산하지 않습니다.
 
@@ -16,6 +16,9 @@
 - 힘 옆의 방향·N 수치와 `힘 가까이 보기`로 부력·무게·위나 아래로 작용하는 고정력을 읽습니다. 화살표의 실제 길이는 항상 3 mm/N이고, 카메라 확대만 바뀝니다. 0 N은 화살표를 만들지 않습니다.
 - 질량·액체 밀도·완전잠김 깊이에 관한 세 안내 실험은 실제 조건을 맞춘 뒤 관찰을 확인하는 방식입니다.
 - 현재 조건과 보관 조건을 같은 힘(N) 축과 잠김 비율(%) 축에서 비교합니다. 보관 조건은 현재 조건을 바꾸어도 유지됩니다.
+- 여섯 면의 압력 합력과 옆면 압력중심·부심, 수조 바닥 하중, 부분잠김 높이 감도를 읽습니다. 압력은 기존 정역학 결과를 면별로 분해한 값입니다.
+- 실제 관통 슬리브·체결축·압착패드와 수조 받침 구조를 살펴봅니다. 임시 상세 관찰을 마치면 원래 카메라와 현재 보기 선택으로 돌아갑니다.
+- 파일의 정밀한 조건값을 숫자 칸을 나가는 것만으로 반올림하지 않고 보존합니다. 상세 계산의 단위와 경계는 [상세 관찰 기준](docs/detail-refinement.md)에 설명합니다.
 
 처음에는 0.4 kg / 1 L / 1,000 kg/m³ 조건에서 물체가 40% 잠깁니다. 질량을 0.8 kg으로 바꾸면 잠김 비율은 80%가 됩니다. 높이 고정에서는 위로 당기는 힘과 아래로 누르는 힘을 구별합니다.
 
@@ -32,6 +35,7 @@ npm test
 npx --no-install playwright install chromium
 npm run test:browser
 npm run test:consumer
+npm run test:detail
 node scripts/desktop.mjs prepare-test
 npm run test:desktop
 npm run desktop
@@ -47,8 +51,8 @@ npm run package:desktop
 
 Windows x64 NSIS 설치 파일과 체크섬은 다음 위치에 생성됩니다.
 
-- `release/windows/Buoyancy-Lab-Setup-1.0.0.exe`
-- `release/windows/Buoyancy-Lab-Setup-1.0.0.exe.sha256`
+- `release/windows/Buoyancy-Lab-Setup-1.1.0.exe`
+- `release/windows/Buoyancy-Lab-Setup-1.1.0.exe.sha256`
 
 코드 서명과 자동 업데이트는 제공하지 않습니다. 다운로드한 설치 파일과 `.sha256`의 해시를 확인하고 직접 실행합니다. 실제 설치·호환성 범위는 해당 릴리스의 결과 기록을 따릅니다. 배포 및 앱 데이터 보존에 관해서는 [설치와 배포 범위](docs/distribution.md)를 참고하세요.
 

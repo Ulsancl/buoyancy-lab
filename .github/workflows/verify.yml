@@ -52,6 +52,9 @@ jobs:
       - name: Verify consumer observation and local feedback
         timeout-minutes: 10
         run: npm run test:consumer
+      - name: Verify pressure detail, precision and temporary observation
+        timeout-minutes: 10
+        run: npm run test:detail
       - name: Verify source desktop app
         timeout-minutes: 10
         run: npm run test:desktop
@@ -73,7 +76,7 @@ jobs:
           if ($taskEntry.Groups['name'].Value -cne [System.IO.Path]::GetFileName($taskInstaller)) { throw 'Checksum filename mismatch' }
           $taskActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $taskInstaller).Hash.ToLowerInvariant()
           if ($taskActualHash -cne $taskEntry.Groups['sha'].Value) { throw 'Installer checksum mismatch' }
-          foreach ($taskNotice in @('LICENSE.electron.txt', 'LICENSES.chromium.html', 'resources/THREE-LICENSE.txt', 'resources/LICENSE.txt', 'resources/docs/THIRD-PARTY-NOTICES.md', 'resources/docs/model.md', 'resources/docs/anatomy.md', 'resources/docs/distribution.md', 'resources/docs/storage.md', 'resources/docs/references.md', 'resources/docs/privacy.md', 'resources/docs/support.md', 'resources/docs/release-checklist.md', 'resources/사용 안내.txt')) {
+          foreach ($taskNotice in @('LICENSE.electron.txt', 'LICENSES.chromium.html', 'resources/THREE-LICENSE.txt', 'resources/LICENSE.txt', 'resources/docs/THIRD-PARTY-NOTICES.md', 'resources/docs/model.md', 'resources/docs/detail-refinement.md', 'resources/docs/anatomy.md', 'resources/docs/distribution.md', 'resources/docs/storage.md', 'resources/docs/references.md', 'resources/docs/privacy.md', 'resources/docs/support.md', 'resources/docs/release-checklist.md', 'resources/사용 안내.txt')) {
             if (-not (Test-Path -PathType Leaf -LiteralPath (Join-Path 'release/windows/win-unpacked' $taskNotice))) { throw "Missing document: $taskNotice" }
           }
       - name: Retain tested installer
@@ -98,6 +101,8 @@ jobs:
             output/consumer/report.json
             output/consumer/*.png
             output/consumer/*.buoyancy.json
+            output/detail-browser/*.json
+            output/detail-browser/*.png
             output/desktop*/result.json
             output/desktop*/failure.json
             output/desktop*/failure.png
