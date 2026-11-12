@@ -1,3 +1,4 @@
+import { artifactDirectory } from '../scripts/safe-files.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +9,8 @@ import { createProject, serializeProject } from '../src/project.js';
 import { COMPONENTS } from '../src/geometry.js';
 import { describeBuoyancyDetail } from '../src/detail-model.js';
 
-const root = path.resolve(import.meta.dirname, '..'), output = path.join(root, 'output/detail-browser');
+const root = path.resolve(import.meta.dirname, '..');
+const output = artifactDirectory(root, path.join(root, 'output/detail-browser'));
 const baseURL = 'http://127.0.0.1:5336/';
 const G = 9.80665, AT = .175, AB = .01, VF = .0385;
 await fs.mkdir(output, { recursive: true });
