@@ -1,10 +1,12 @@
+import { artifactDirectory } from '../scripts/safe-files.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
-const root = path.resolve(import.meta.dirname, '..'), output = path.join(root, 'output/browser-integration');
+const root = path.resolve(import.meta.dirname, '..');
+const output = artifactDirectory(root, path.join(root, 'output/browser-integration'));
 const baseURL = 'http://127.0.0.1:5271/', storageKey = 'buoyancy-lab-project-v1';
 const G = 9.80665, TANK_AREA = .175, BODY_AREA = .01, LIQUID_VOLUME = .0385;
 const near = (actual, expected, tolerance = 1e-9) => assert.ok(Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance, `${actual} != ${expected} (tolerance ${tolerance})`);
