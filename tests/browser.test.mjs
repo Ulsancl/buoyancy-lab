@@ -56,6 +56,38 @@ try {
   page = await context.newPage(); page.setDefaultTimeout(20000); watch(page);
   await page.goto(baseURL); await page.waitForFunction(() => window.buoyancyLab?.sceneDebug()?.ready);
 
+  await check('a stale tab cannot overwrite a newer saved comparison on unload', async () => {
+    const tabs = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const key = 'buoyancy-lab-project-v1';
+    const open = async () => {
+      const tab = await tabs.newPage();
+      await tab.goto(page.url());
+      await tab.waitForFunction(() => window.buoyancyLab?.getState());
+      return tab;
+    };
+    const flush = tab => tab.evaluate(() => { window.dispatchEvent(new Event('beforeunload')); });
+    const stored = tab => tab.evaluate(key => localStorage.getItem(key), key);
+    try {
+      const writer = await open();
+      await flush(writer);
+      const stale = await open();
+      assert.equal(await stale.evaluate(() => window.buoyancyLab.getState().comparison), null);
+      await writer.locator('#pin-comparison').click();
+      await flush(writer);
+      const newer = await stored(writer);
+      assert.ok(JSON.parse(newer).comparison);
+      await flush(stale);
+      assert.equal(await stored(stale), newer);
+      assert.match(await stale.locator('#save-status').innerText(), /다른 (?:창|탭)/);
+      // This tab still owns its in-memory work and may export it separately.
+      assert.equal(await stale.evaluate(() => window.buoyancyLab.project().comparison), null);
+      assert.equal(await stale.locator('#save-project').isEnabled(), true);
+      await stale.reload();
+      await stale.waitForFunction(() => window.buoyancyLab?.getState().comparison);
+      assert.deepEqual(await stale.evaluate(() => window.buoyancyLab.getState().comparison), JSON.parse(newer).comparison);
+    } finally { await tabs.close(); }
+  });
+
   await check('initial finite-tank observation is static, uses SI conditions and has no idle redraw loop', async () => {
     const initial = await state();
     assert.deepEqual(initial.experiment.config, { bodyMassKg: .4, bodyVolumeM3: .001, fluidDensityKgM3: 1000, mode: 'equilibrium', heldBottomM: .06 });
@@ -147,6 +179,21 @@ try {
     done.evidence.forEach(item => near(item.buoyancyN, .8 * G));
   });
 
+  await check('saved observations distinguish held, unique, neutral and no-equilibrium poses', async () => {
+    for (const [mass, expected] of [[0.4, '자유부유 평형'], [1, '중성 · 대표 위치'], [2, '평형 없음 · 기준 위치']]) {
+      await conditions(mass, 1, 1000);
+      await mode('equilibrium');
+      await page.locator('#pin-comparison').click();
+      await mode('held');
+      assert.ok((await page.locator('#comparison-summary').innerText()).endsWith(expected));
+    }
+    await page.locator('#pin-comparison').click();
+    await mode('equilibrium');
+    assert.ok((await page.locator('#comparison-summary').innerText()).endsWith('높이 고정'));
+    await page.locator('#new-project').click();
+    await dismissToast();
+  });
+
   await check('depth guide requires surface-pressure observation and preserves its evidence through new-experiment undo', async () => {
     await choose('depth'); await mode('held'); await conditions(1.2, 1, 1000); await change('height-number', 6);
     await page.locator('[data-view="pressures"]').uncheck(); assert.equal(await page.locator('#guide-next').isEnabled(), false);
@@ -225,6 +272,11 @@ try {
         await other.goto(baseURL); await other.waitForFunction(() => window.buoyancyLab?.sceneDebug()?.ready && !document.querySelector('#storage-recovery').hidden);
         await other.locator('#mass-number').fill('.8'); await other.locator('#mass-number').press('Tab'); await other.locator('[data-mode="held"]').click(); await other.waitForTimeout(300);
         assert.equal(await other.evaluate(key => localStorage.getItem(key), storageKey), raw);
+        await other.reload();
+        await other.waitForFunction(() => window.buoyancyLab && !document.querySelector('#storage-recovery').hidden);
+        const backups = await other.evaluate(() => Object.keys(localStorage)
+          .filter(key => key.startsWith('buoyancy-lab-project-v1-original-')).map(key => localStorage.getItem(key)));
+        assert.deepEqual(backups, [raw], 'reloading the same protected original must not consume another quota entry');
         const pending = other.waitForEvent('download'); await other.locator('#recover-original').click(); const file = path.join(output, `${name}-original.txt`); await (await pending).saveAs(file); assert.equal(await fs.readFile(file, 'utf8'), raw);
       } finally { await isolated.close(); }
     }

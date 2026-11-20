@@ -24,10 +24,36 @@ function beginInspection(id=view.selectedPart){if(busy||!inspectionParts.has(id)
 function endInspection(){scene?.endInspection?.();refresh();scheduleSave();}
 function toast(message){clearTimeout(toastTimer);const close=Object.assign(document.createElement('button'),{textContent:'닫기',type:'button'});close.onclick=()=>{$('#toast').hidden=true;};$('#toast').replaceChildren(Object.assign(document.createElement('span'),{textContent:message}),close);$('#toast').hidden=false;toastTimer=setTimeout(()=>{$('#toast').hidden=true;},6500);}
 function capture(){return createProject({experiment,comparison,view,camera:scene?.getProjectCameraState?.()??scene?.getCameraState()??initialCamera});}
-function saveLocal(){clearTimeout(saveTimer);if(storageBlocked||restoring)return;try{localStorage.setItem(KEY,serializeProject(capture()));text('#save-status','이 기기에 자동 저장됨');}catch{text('#save-status','자동 저장을 완료하지 못했습니다 · 파일로 보관하세요');}}
+// Bytes last read or written by this tab. A stale unload must not replace another tab's experiment.
+let lastStoredRaw = null;
+function saveLocal() {
+  clearTimeout(saveTimer);
+  if (storageBlocked || restoring) return;
+  try {
+    const contents = serializeProject(capture()), stored = localStorage.getItem(KEY);
+    if (stored !== lastStoredRaw && stored !== contents) {
+      storageBlocked = true;
+      text('#save-status', '다른 탭에서 자동 저장이 변경됨 · 이 탭의 실험은 파일로 저장한 뒤 새로고침하세요');
+      return;
+    }
+    if (stored !== contents) localStorage.setItem(KEY, contents);
+    lastStoredRaw = contents;
+    text('#save-status', '이 기기에 자동 저장됨');
+  } catch { text('#save-status', '자동 저장을 완료하지 못했습니다 · 파일로 보관하세요'); }
+}
 function scheduleSave(){if(restoring||storageBlocked)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveLocal,230);}
-function protectOriginal(raw,future){storageBlocked=true;recoveredRaw=raw;try{localStorage.setItem(`${KEY}-original-${Date.now()}`,raw);}catch{}$('#storage-recovery').hidden=false;if(future)text('#storage-recovery strong','더 새로운 버전의 실험입니다. 원문을 보존합니다.');text('#save-status','자동 저장 원문 보호 중 · 현재 실험은 파일로 보관하세요');}
-try{const raw=localStorage.getItem(KEY);if(raw!==null)try{const saved=parseProject(raw);({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);}catch(error){protectOriginal(raw,error.futureVersion);}}catch{storageBlocked=true;text('#save-status','자동 저장을 사용할 수 없습니다 · 파일로 보관하세요');}
+function protectOriginal(raw, future) {
+  storageBlocked = true; recoveredRaw = raw;
+  try {
+    const prefix = `${KEY}-original-`;
+    const backedUp = Object.keys(localStorage).some(k => k.startsWith(prefix) && localStorage.getItem(k) === raw);
+    if (!backedUp) localStorage.setItem(`${prefix}${Date.now()}`, raw);
+  } catch { /* The primary record and its in-memory download remain untouched. */ }
+  $('#storage-recovery').hidden = false;
+  if (future) text('#storage-recovery strong', '더 새로운 버전의 실험입니다. 원문을 보존합니다.');
+  text('#save-status', '자동 저장 원문 보호 중 · 현재 실험은 파일로 보관하세요');
+}
+try{const raw=localStorage.getItem(KEY); lastStoredRaw = raw;if(raw!==null)try{const saved=parseProject(raw);({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);}catch(error){protectOriginal(raw,error.futureVersion);}}catch{storageBlocked=true;text('#save-status','자동 저장을 사용할 수 없습니다 · 파일로 보관하세요');}
 snapshot=getSnapshot(experiment);
 function remember(){previous={project:capture(),guide:copy(guide)};$('#undo-new').hidden=false;}
 function readProject(project,restoredGuide=null){const saved=parseProject(serializeProject(project));scene?.endInspection?.();restoring=true;try{({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);guide=restoredGuide;chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();if(initialCamera)scene?.setCameraState(initialCamera);else scene?.resetCamera();}finally{restoring=false;}saveLocal();}
@@ -49,6 +75,10 @@ function syncControls(){
   }
   for(const b of $$('[data-mode]'))b.setAttribute('aria-pressed',String(b.dataset.mode===experiment.config.mode));$('#height-control').hidden=experiment.config.mode!=='held';$('#part-select').value=view.selectedPart;for(const input of $$('[data-view]'))input.checked=view[input.dataset.view];for(const b of $$('[data-lesson]'))b.setAttribute('aria-pressed',String(b.dataset.lesson===guide?.id));
 }
+function poseSummary(s) {
+  return s.poseKind === 'held' ? '높이 고정' : s.freeEquilibrium === 'unique' ? '자유부유 평형'
+    : s.freeEquilibrium === 'continuum' ? '중성 · 대표 위치' : '평형 없음 · 기준 위치';
+}
 function stateLabel(){if(snapshot.poseKind==='held')return '높이 고정 · 고정장치가 힘의 균형을 유지합니다';if(snapshot.poseKind==='neutral-reference')return '중성부력 · 여러 높이에서 평형, 현재 그림은 대표 위치';if(snapshot.poseKind==='submerged-reference')return '완전잠김 기준 위치 · 자유부유 평형 없음';return '자유부유 평형 · 무게와 부력이 같아요';}
 const signedForce=value=>Math.abs(value)*GEOMETRY_SI.forceWorldPerN<=1e-10?'0.00 N':`${value>0?'위로':'아래로'} ${Math.abs(value)<.01?'<0.01':fmt(Math.abs(value))} N`;
 function drawChart(){chart.update(snapshot,comparison?getSnapshot(comparison.experiment):null,chartDisplay);}
@@ -56,7 +86,7 @@ function renderGuide(){ $('#lesson-guide').hidden=!guide;if(!guide)return;const 
 function refresh(){
   $('#focus-forces').disabled=!view.forces;$('#focus-forces-hint').hidden=view.forces;
   text('#immersion',`${fmt(snapshot.submergedFraction*100,1)}%`);text('#buoyancy',`${fmt(snapshot.buoyancyN)} N`);text('#weight',`${fmt(snapshot.weightN)} N`);text('#water-level',`${fmt(snapshot.waterLevelM*100)} cm`);
-  text('#condition-immersion',`${fmt(snapshot.submergedFraction*100,1)}% 잠김`);text('#condition-state',snapshot.poseKind==='held'?'높이 고정':snapshot.freeEquilibrium==='unique'?'자유부유 평형':snapshot.freeEquilibrium==='continuum'?'중성 · 대표 위치':'평형 없음 · 기준 위치');
+  text('#condition-immersion',`${fmt(snapshot.submergedFraction*100,1)}% 잠김`);text('#condition-state',poseSummary(snapshot));
   text('#pose-status',stateLabel());$('#pose-status').dataset.state=snapshot.freeEquilibrium;
   text('#mode-description',experiment.config.mode==='held'?'물체 아랫면의 높이를 고정하고 필요한 당김·누름을 계산합니다.':'떠 있을 수 있는 위치를 계산합니다. 중성·평형 없음은 기준 위치로 구별합니다.');
   text('#body-density',`${fmt(snapshot.bodyDensityKgM3,1)} kg/m³`);text('#displaced',`${fmt(snapshot.displacedVolumeM3*1000,3)} L`);text('#holder-force',experiment.config.mode==='held'?signedForce(snapshot.holdingForceYN):'사용하지 않음');text('#free-force',signedForce(snapshot.unrestrainedForceYN));
@@ -65,7 +95,7 @@ function refresh(){
   detailPanel.render(snapshot,view.selectedPart);
   const inspection=scene?.getInspection?.()??null;$('#inspection-strip').hidden=!inspection;text('#inspection-note',inspection?.note??'');if(inspection)$('#inspection-select').value=inspection.id;
   $('#inspect-part').disabled=!inspectionParts.has(view.selectedPart);$('#inspect-part').setAttribute('aria-pressed',String(Boolean(inspection)));text('#inspect-part',inspection?'상세 관찰 마치기':'구조·압력 자세히');
-  if(comparison)text('#comparison-summary',`현재 ${name(experiment)} / 보관 ${name(comparison.experiment)} · ${comparison.experiment.config.mode==='held'?'높이 고정':'자유부유 평형'}`);
+  if(comparison)text('#comparison-summary',`현재 ${name(experiment)} / 보관 ${name(comparison.experiment)} · ${poseSummary(getSnapshot(comparison.experiment))}`);
   for(const b of $$('[data-chart-mode]'))b.setAttribute('aria-pressed',String(b.dataset.chartMode===chartDisplay));drawChart();renderGuide();scene?.update(snapshot,view);
 }
 function startLesson(id){if(busy||!Object.hasOwn(LESSONS,id))return;remember();scene?.endInspection?.();experiment=createExperiment(LESSONS[id].config);guide=createGuide(id);comparison=null;view=normalizeView(DEFAULT_VIEW);chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();scene?.resetCamera();saveLocal();$('#lesson-guide').scrollIntoView({block:'nearest'});}
