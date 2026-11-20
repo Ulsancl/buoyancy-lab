@@ -1,7 +1,7 @@
 import './style.css';
 import { DEFAULT_CONFIG, CONFIG_LIMITS_SI, normalizeConfig, createExperiment, getSnapshot } from './model.js';
 import { createProject, parseProject, serializeProject, normalizeView, DEFAULT_VIEW } from './project.js';
-import { createBrowserAutosave, supportsAutosaveLock, withAutosaveLock, writeIfUnchanged } from './browser-autosave.js';
+import { createBrowserAutosave, supportsAutosaveLock, withAutosaveLock, writeIfUnchanged, readTabDraft, writeTabDraft, clearTabDraft } from './browser-autosave.js';
 import { COMPONENTS, GEOMETRY_SI } from './geometry.js';
 import { BuoyancyScene } from './scene.js';
 import { BuoyancyChart } from './chart.js';
@@ -26,6 +26,8 @@ function endInspection(){scene?.endInspection?.();refresh();scheduleSave();}
 function toast(message){clearTimeout(toastTimer);const close=Object.assign(document.createElement('button'),{textContent:'닫기',type:'button'});close.onclick=()=>{$('#toast').hidden=true;};$('#toast').replaceChildren(Object.assign(document.createElement('span'),{textContent:message}),close);$('#toast').hidden=false;toastTimer=setTimeout(()=>{$('#toast').hidden=true;},6500);}
 function capture(){return createProject({experiment,comparison,view,camera:scene?.getProjectCameraState?.()??scene?.getCameraState()??initialCamera});}
 let lastStoredRaw = null, browserAutosave = null, guardArmed = false;
+let resumedTabDraft = false, interruptedTabDraft = null, tabDraftProtected = false;
+const draftStorage = () => sessionStorage;
 const getBrowserLocks = () => { try { return navigator.locks; } catch { return undefined; } };
 const currentProjectText = () => serializeProject(capture());
 const autosaveIssues = {
@@ -33,8 +35,17 @@ const autosaveIssues = {
   unavailable: ['이 환경에서는 안전한 자동 저장을 사용할 수 없어요.', '기존 자동 저장 기록을 덮어쓰지 않습니다. 변경한 실험은 아래에서 파일로 내려받으세요.', '안전한 자동 저장을 사용할 수 없음 · 파일로 보관하세요'],
   failed: ['자동 저장을 완료하지 못했어요.', '현재 실험을 잃지 않으려면 아래에서 파일로 내려받으세요.', '자동 저장을 완료하지 못했습니다 · 파일로 보관하세요'],
 };
+function rememberBrowserDraft() {
+  try {
+    const draft = browserAutosave.unsavedDraft();
+    // This is private to the current tab and survives a reload, not a safe
+    // replacement for a project file if the tab/browser is closed.
+    if (draft && !restoring && !tabDraftProtected) writeTabDraft(draftStorage, KEY, draft);
+    return Boolean(draft);
+  } catch { return true; }
+}
 function warnOnUnsavedExit(event) {
-  try { if (!browserAutosave.hasUnsavedChanges()) return; } catch { /* The current experiment could not be checked. */ }
+  if (!rememberBrowserDraft()) return;
   event.preventDefault();
   event.returnValue = true;
 }
@@ -47,8 +58,9 @@ function disarmUnloadGuard() {
   guardArmed = false;
   window.removeEventListener('beforeunload', warnOnUnsavedExit);
 }
-function reportAutosave(status) {
+function reportAutosave(status, contents) {
   if (status === 'saved' || status === 'unchanged') {
+    if (!desktop && !tabDraftProtected) clearTabDraft(draftStorage, KEY, contents);
     disarmUnloadGuard();
     $('#autosave-recovery').hidden = true;
     text('#save-status', status === 'saved' ? '이 기기에 자동 저장됨' : '자동 저장할 변경 없음');
@@ -90,7 +102,9 @@ function scheduleSave() {
   clearTimeout(saveTimer); saveTimer = setTimeout(saveLocal, 230);
 }
 function flushBrowserOnHide() {
-  if (guardArmed && !restoring && !storageBlocked && browserAutosave?.canSave()) {
+  if (!guardArmed || restoring || !browserAutosave) return;
+  rememberBrowserDraft();
+  if (!storageBlocked && browserAutosave.canSave()) {
     clearTimeout(saveTimer);
     void browserAutosave.flush();
   }
@@ -113,14 +127,44 @@ function protectOriginal(raw, future) {
   if (future) text('#storage-recovery strong', '더 새로운 버전의 실험입니다. 원문을 보존합니다.');
   text('#save-status', '자동 저장 원문 보호 중 · 현재 실험은 파일로 보관하세요');
 }
+function applyRestoredProject(saved) {
+  ({experiment,comparison} = saved);
+  ({view,camera:initialCamera} = saved.observation);
+}
 try {
   const raw = localStorage.getItem(KEY); lastStoredRaw = raw;
   if (raw !== null) try {
-    const saved = parseProject(raw);
-    ({experiment,comparison} = saved);
-    ({view,camera:initialCamera} = saved.observation);
+    applyRestoredProject(parseProject(raw));
   } catch (error) { protectOriginal(raw, error.futureVersion); }
 } catch { storageBlocked = true; reportAutosave('unavailable'); }
+function restoreTabDraft() {
+  if (desktop) return;
+  // Even if a new tab inherited sessionStorage from an opener, it must not
+  // silently reapply that draft to the shared experiment.
+  const reloading = performance.getEntriesByType?.('navigation')?.[0]?.type === 'reload';
+  const draft = readTabDraft(draftStorage, KEY);
+  if (!draft) return;
+  if (draft.contents === lastStoredRaw) {
+    clearTabDraft(draftStorage, KEY, draft.contents);
+    return;
+  }
+  try {
+    const saved = parseProject(draft.contents);
+    if (reloading && !draft.interrupted && !storageBlocked && draft.expected === lastStoredRaw
+        && supportsAutosaveLock(getBrowserLocks())) {
+      applyRestoredProject(saved);
+      resumedTabDraft = true;
+    } else {
+      // The latest shared version remains the active experiment. Hold the old
+      // tab draft apart, even if the primary value later returns to old bytes.
+      interruptedTabDraft = draft.contents;
+      tabDraftProtected = true;
+      writeTabDraft(draftStorage, KEY, { ...draft, interrupted: true });
+      $('#tab-draft-recovery').hidden = false;
+    }
+  } catch { clearTabDraft(draftStorage, KEY, draft.contents); }
+}
+restoreTabDraft();
 snapshot=getSnapshot(experiment);
 function remember(){previous={project:capture(),guide:copy(guide)};$('#undo-new').hidden=false;}
 function readProject(project,restoredGuide=null){const saved=parseProject(serializeProject(project));scene?.endInspection?.();restoring=true;try{({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);guide=restoredGuide;chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();if(initialCamera)scene?.setCameraState(initialCamera);else scene?.resetCamera();}finally{restoring=false;}saveLocal();}
@@ -175,7 +219,17 @@ function downloadBrowserProject(contents, filename) {
   // The browser owns the download prompt; this records the snapshot offered
   // to it, not a guarantee that the user kept the file.
   browserAutosave.markExported(contents);
+  if (!tabDraftProtected) clearTabDraft(draftStorage, KEY);
   disarmUnloadGuard();
+}
+function exportInterruptedTabDraft() {
+  if (busy || interruptedTabDraft === null) return;
+  try {
+    download(interruptedTabDraft, projectFilename('-interrupted'));
+    if (tabDraftProtected) clearTabDraft(draftStorage, KEY, interruptedTabDraft);
+    tabDraftProtected = false;
+    toast('내려받은 복구 사본을 확인하세요.');
+  } catch (error) { toast(`내려받지 못했습니다. ${error.message}`); }
 }
 function exportUnsavedProject() {
   if (busy) return;
@@ -196,9 +250,10 @@ syncControls();refresh();if(!initialCamera)scene?.resetCamera();
 if (!desktop) {
   browserAutosave = createBrowserAutosave({
     key: KEY, storage: () => localStorage, locks: getBrowserLocks(), expected: lastStoredRaw,
-    baseline: currentProjectText(), capture: currentProjectText, onStatus: reportAutosave,
+    baseline: resumedTabDraft ? null : currentProjectText(), capture: currentProjectText, onStatus: reportAutosave,
   });
   if (!storageBlocked && !browserAutosave.canSave()) reportAutosave('unavailable');
+  else if (resumedTabDraft) saveLocal();
 }
 for(const[id,key,factor,rangeStep,numberStep]of fields){
   const apply=event=>{
@@ -240,6 +295,7 @@ $('#pin-comparison').addEventListener('click',()=>{if(busy)return;comparison={la
 for(const b of $$('[data-chart-mode]'))b.addEventListener('click',()=>{chartDisplay=b.dataset.chartMode;drawChart();for(const button of $$('[data-chart-mode]'))button.setAttribute('aria-pressed',String(button.dataset.chartMode===chartDisplay));});
 $('#new-project').addEventListener('click',newExperiment);$('#undo-new').addEventListener('click',()=>{if(!previous||busy)return;const before=previous;previous=null;readProject(before.project,before.guide);$('#undo-new').hidden=true;toast('직전 실험을 복원했습니다.');});
 $('#export-unsaved-project').addEventListener('click', exportUnsavedProject);
+$('#export-interrupted-draft').addEventListener('click', exportInterruptedTabDraft);
 $('#save-project').addEventListener('click',saveFile);$('#open-project').addEventListener('click',openFile);$('#project-file').addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file||busy)return;setBusy(true);try{if(file.size>10*1024*1024)throw new Error('실험 파일은 10 MiB 이하여야 합니다.');const p=parseProject(await file.text());remember();readProject(p);toast('저장한 부력 실험을 복원했습니다.');}catch(error){toast(`열지 못했습니다. ${error.message}`);}finally{event.target.value='';setBusy(false);}});
 $('#recover-original').addEventListener('click',()=>{if(recoveredRaw!==null)download(recoveredRaw,'buoyancy-lab-original.txt','text/plain;charset=utf-8');});$('#help').addEventListener('click',help);$('#close-help').addEventListener('click',()=>$('#help-dialog').close());
 desktop?.onCommand(command=>{if(busy)return;const actions={'new-project':newExperiment,'open-project':openFile,'save-project':saveFile,focus:toggleFocus,help,'set-equilibrium':()=>changeConfig({mode:'equilibrium'}),'set-held':()=>changeConfig({mode:'held'})};actions[command]?.();});
