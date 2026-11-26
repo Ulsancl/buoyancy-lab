@@ -51,8 +51,8 @@ npm run package:desktop
 
 Windows x64 NSIS 설치 파일과 체크섬은 다음 위치에 생성됩니다.
 
-- `release/windows/Buoyancy-Lab-Setup-1.1.0.exe`
-- `release/windows/Buoyancy-Lab-Setup-1.1.0.exe.sha256`
+- `release/windows/Buoyancy-Lab-Setup-1.1.1.exe`
+- `release/windows/Buoyancy-Lab-Setup-1.1.1.exe.sha256`
 
 코드 서명과 자동 업데이트는 제공하지 않습니다. 다운로드한 설치 파일과 `.sha256`의 해시를 확인하고 직접 실행합니다. 실제 설치·호환성 범위는 해당 릴리스의 결과 기록을 따릅니다. 배포 및 앱 데이터 보존에 관해서는 [설치와 배포 범위](docs/distribution.md)를 참고하세요.
 
