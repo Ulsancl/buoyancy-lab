@@ -1,6 +1,6 @@
 import './style.css';
 import { DEFAULT_CONFIG, CONSTANTS_SI, CONFIG_LIMITS_SI, normalizeConfig, createExperiment, getSnapshot } from './model.js';
-import { createProject, parseProject, serializeProject, normalizeView, DEFAULT_VIEW } from './project.js';
+import { createProject, parseProject, serializeProject, normalizeView, DEFAULT_VIEW, MAX_PROJECT_BYTES, PROJECT_SIZE_ERROR } from './project.js';
 import { createBrowserAutosave, supportsAutosaveLock, withAutosaveLock, writeIfUnchanged, readTabDraft, writeTabDraft, clearTabDraft } from './browser-autosave.js';
 import { COMPONENTS, GEOMETRY_SI } from './geometry.js';
 import { BuoyancyScene } from './scene.js';
@@ -197,7 +197,7 @@ function restoreTabDraft() {
 restoreTabDraft();
 snapshot=getSnapshot(experiment);
 function remember(){previous={project:capture(),guide:copy(guide)};$('#undo-new').hidden=false;}
-function readProject(project,restoredGuide=null){const saved=parseProject(serializeProject(project));scene?.endInspection?.();restoring=true;try{({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);guide=restoredGuide;chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();if(initialCamera)scene?.setCameraState(initialCamera);else scene?.resetCamera();}finally{restoring=false;}saveLocal();}
+function readProject(saved,restoredGuide=null){scene?.endInspection?.();restoring=true;try{({experiment,comparison}=saved);({view,camera:initialCamera}=saved.observation);guide=restoredGuide;chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();if(initialCamera)scene?.setCameraState(initialCamera);else scene?.resetCamera();}finally{restoring=false;}saveLocal();}
 function changeConfig(patch){if(busy)return;const config=normalizeConfig({...experiment.config,...patch});if(Object.keys(config).every(k=>config[k]===experiment.config[k])){syncControls();return;}experiment=createExperiment(config);snapshot=getSnapshot(experiment);syncControls();refresh();scheduleSave();}
 function newExperiment(){if(busy)return;remember();scene?.endInspection?.();experiment=createExperiment(DEFAULT_CONFIG);comparison=null;guide=null;view=normalizeView(DEFAULT_VIEW);chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();scene?.resetCamera();saveLocal();toast('새 실험을 시작했습니다. 직전 실험은 되돌릴 수 있습니다.');}
 function setBusy(value){busy=value;$('#save-project').disabled=value;$('#open-project').disabled=value;if(desktop?.setBusy)Promise.resolve(desktop.setBusy(value)).catch(()=>{});}
@@ -279,7 +279,7 @@ function exportUnsavedProject() {
   } catch (error) { toast(`내려받지 못했습니다. ${error.message}`); }
 }
 async function saveFile(){if(busy)return;setBusy(true);try{const contents=currentProjectText(),filename=projectFilename();if(desktop){const r=await desktop.saveProject({contents,name:filename});if(r.canceled){toast('저장을 취소했습니다. 현재 실험은 유지합니다.');return;}}else downloadBrowserProject(contents,filename);saveLocal();toast('실험 조건, 비교, 관찰 시점과 표시 선택을 저장했습니다.');}catch(error){toast(`저장하지 못했습니다. ${error.message}`);}finally{setBusy(false);}}
-async function openFile(){if(busy)return;if(!desktop){$('#project-file').click();return;}setBusy(true);try{const r=await desktop.openProject();if(r.canceled){toast('열기를 취소했습니다. 현재 실험은 유지합니다.');return;}const p=parseProject(r.content);remember();readProject(p);toast('저장한 부력 실험을 복원했습니다.');}catch(error){toast(`열지 못했습니다. ${error.message}`);}finally{setBusy(false);}}
+async function openFile(){if(busy)return;if(!desktop){$('#project-file').click();return;}setBusy(true);try{const r=await desktop.openProject();if(r.canceled){toast('열기를 취소했습니다. 현재 실험은 유지합니다.');return;}remember();readProject(r.project);toast('저장한 부력 실험을 복원했습니다.');}catch(error){toast(`열지 못했습니다. ${error.message}`);}finally{setBusy(false);}}
 function toggleFocus(){document.body.classList.toggle('focus-mode');text('#focus',document.body.classList.contains('focus-mode')?'실험 화면으로':'3D 크게 보기');$('.observation').scrollIntoView({block:'start'});}
 function help(){$('#help-dialog').showModal();}
 $('#part-select').replaceChildren(...COMPONENTS.map(p=>Object.assign(document.createElement('option'),{value:p.id,textContent:p.label})));
@@ -336,7 +336,7 @@ for(const b of $$('[data-chart-mode]'))b.addEventListener('click',()=>{chartDisp
 $('#new-project').addEventListener('click',newExperiment);$('#undo-new').addEventListener('click',()=>{if(!previous||busy)return;const before=previous;previous=null;readProject(before.project,before.guide);$('#undo-new').hidden=true;toast('직전 실험을 복원했습니다.');});
 $('#export-unsaved-project').addEventListener('click', exportUnsavedProject);
 $('#export-interrupted-draft').addEventListener('click', exportInterruptedTabDraft);
-$('#save-project').addEventListener('click',saveFile);$('#open-project').addEventListener('click',openFile);$('#project-file').addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file||busy)return;setBusy(true);try{if(file.size>10*1024*1024)throw new Error('실험 파일은 10 MiB 이하여야 합니다.');const p=parseProject(await file.text());remember();readProject(p);toast('저장한 부력 실험을 복원했습니다.');}catch(error){toast(`열지 못했습니다. ${error.message}`);}finally{event.target.value='';setBusy(false);}});
+$('#save-project').addEventListener('click',saveFile);$('#open-project').addEventListener('click',openFile);$('#project-file').addEventListener('change',async event=>{const file=event.target.files?.[0];if(!file||busy)return;setBusy(true);try{if(file.size>MAX_PROJECT_BYTES)throw new Error(PROJECT_SIZE_ERROR);const p=parseProject(await file.text());remember();readProject(p);toast('저장한 부력 실험을 복원했습니다.');}catch(error){toast(`열지 못했습니다. ${error.message}`);}finally{event.target.value='';setBusy(false);}});
 $('#recover-original').addEventListener('click',()=>{if(recoveredRaw!==null)download(recoveredRaw,'buoyancy-lab-original.txt','text/plain;charset=utf-8');});$('#help').addEventListener('click',help);$('#close-help').addEventListener('click',()=>$('#help-dialog').close());
 desktop?.onCommand(command=>{if(busy)return;const actions={'new-project':newExperiment,'open-project':openFile,'save-project':saveFile,focus:toggleFocus,help,'set-equilibrium':()=>changeConfig({mode:'equilibrium'}),'set-held':()=>changeConfig({mode:'held'})};actions[command]?.();});
 if (desktop) window.addEventListener('beforeunload', saveLocal);
@@ -345,6 +345,8 @@ else {
   window.addEventListener('pagehide', flushBrowserOnHide);
 }
 new ResizeObserver(drawChart).observe($('#force-chart'));
-window.buoyancyLab={getState:()=>copy({experiment,snapshot,view,comparison}),project:()=>copy(capture()),loadProject:raw=>{const p=parseProject(raw);remember();readProject(p);return copy(capture());},sceneDebug:()=>scene?.getDebug()??null,guide:()=>copy(guide),chartDebug:()=>copy(chart.debug),getDetail:()=>buoyancyDetail(snapshot),getInspection:()=>scene?.getInspection?.()??null,beginInspection,endInspection};
-window.render_game_to_text=()=>JSON.stringify({mode:'static',coordinateSystem:'SI metres; +x right, +y up from tank floor, +z front; force arrows .003m/N; no physical clock',snapshot,selectedPart:view.selectedPart,inspection:scene?.getInspection?.()??null,comparison:Boolean(comparison)});
-window.advanceTime=milliseconds=>{if(!Number.isFinite(milliseconds)||milliseconds<0)throw new RangeError('Expected nonnegative milliseconds');return copy(snapshot);};
+if (__ENABLE_TEST_HOOKS__) {
+  window.buoyancyLab={getState:()=>copy({experiment,snapshot,view,comparison}),project:()=>copy(capture()),loadProject:raw=>{const p=parseProject(raw);remember();readProject(p);return copy(capture());},sceneDebug:()=>scene?.getDebug()??null,guide:()=>copy(guide),chartDebug:()=>copy(chart.debug),getDetail:()=>buoyancyDetail(snapshot),getInspection:()=>scene?.getInspection?.()??null,beginInspection,endInspection};
+  window.render_game_to_text=()=>JSON.stringify({mode:'static',coordinateSystem:'SI metres; +x right, +y up from tank floor, +z front; force arrows .003m/N; no physical clock',snapshot,selectedPart:view.selectedPart,inspection:scene?.getInspection?.()??null,comparison:Boolean(comparison)});
+  window.advanceTime=milliseconds=>{if(!Number.isFinite(milliseconds)||milliseconds<0)throw new RangeError('Expected nonnegative milliseconds');return copy(snapshot);};
+}

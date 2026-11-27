@@ -49,6 +49,8 @@ npm run desktop
 npm run package:desktop
 ```
 
+이 명령은 개발·검증용 설치 파일을 만듭니다. 공식 배포에는 승인된 Windows 코드 서명 환경에서 `npm run package:desktop:release`를 사용합니다. [배포 안내](docs/distribution.md)
+
 Windows x64 NSIS 설치 파일과 체크섬은 다음 위치에 생성됩니다.
 
 - `release/windows/Buoyancy-Lab-Setup-1.1.1.exe`

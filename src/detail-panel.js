@@ -48,9 +48,24 @@ export class BuoyancyDetailPanel {
   }
   profile(s,d) {
     const lower=Math.max(0,Math.min(s.bodyBottomM,s.waterLevelM)-.018),upper=Math.min(CONSTANTS_SI.tankHeightM,Math.max(s.bodyTopM,s.waterLevelM)+.018),y=value=>267-(value-lower)/(upper-lower)*237,x=pressure=>220+pressure/4000*272;
-    let grid='';for(let i=0;i<=4;i++){const value=lower+(upper-lower)*i/4,py=y(value);grid+=`<line x1="66" x2="503" y1="${py}" y2="${py}" stroke="#dde5df"/><text x="59" y="${py+4}" text-anchor="end">${numeric(value*100,1)}</text>`;}
-    for(let pressure=0;pressure<=4000;pressure+=1000){const px=x(pressure);grid+=`<line x1="${px}" x2="${px}" y1="30" y2="267" stroke="#e4eae4"/><text x="${px}" y="292" text-anchor="middle">${pressure.toLocaleString('ko-KR')}</text>`;}
-    this.root.querySelector('#pressure-grid').innerHTML=grid;
+    const grid = document.createDocumentFragment();
+    const append = (tag, attributes, text = '') => {
+      const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      element.textContent = text;
+      grid.append(element);
+    };
+    for (let i = 0; i <= 4; i++) {
+      const value = lower + (upper - lower) * i / 4, py = y(value);
+      append('line', { x1: 66, x2: 503, y1: py, y2: py, stroke: '#dde5df' });
+      append('text', { x: 59, y: py + 4, 'text-anchor': 'end' }, numeric(value * 100, 1));
+    }
+    for (let pressure = 0; pressure <= 4000; pressure += 1000) {
+      const px = x(pressure);
+      append('line', { x1: px, x2: px, y1: 30, y2: 267, stroke: '#e4eae4' });
+      append('text', { x: px, y: 292, 'text-anchor': 'middle' }, pressure.toLocaleString('ko-KR'));
+    }
+    this.root.querySelector('#pressure-grid').replaceChildren(grid);
     for(const [id,top,height] of [['profile-body',s.bodyTopM,s.bodyHeightM],['profile-wet',s.bodyBottomM+s.submergedHeightM,s.submergedHeightM]]){const rectangle=this.root.querySelector('#'+id);rectangle.setAttribute('y',y(top));rectangle.setAttribute('height',height/(upper-lower)*237);}
     const samples=[{heightM:s.bodyBottomM,gaugePressurePa:s.bottomGaugePressurePa}];
     if(s.waterLevelM>s.bodyBottomM&&s.waterLevelM<s.bodyTopM)samples.push({heightM:s.waterLevelM,gaugePressurePa:0});

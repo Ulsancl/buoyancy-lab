@@ -3,7 +3,9 @@ import { DEFAULT_VIEW, COMPONENTS } from './geometry.js';
 
 export { DEFAULT_VIEW };
 export const projectType = 'buoyancy-lab-project', projectVersion = 1, projectModelVersion = MODEL_VERSION;
-const MAX_BYTES = 10 * 1024 * 1024;
+// Current and legacy files produced by the app are under 2 KiB.
+export const MAX_PROJECT_BYTES = 64 * 1024;
+export const PROJECT_SIZE_ERROR = '실험 파일은 64 KiB 이하여야 합니다.';
 const flags = ['cutaway', 'forces', 'pressures', 'labels'];
 const parts = new Set(COMPONENTS.map(part => part.id));
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -93,7 +95,7 @@ export function createProject(input = {}) {
 }
 export function parseProject(text) {
   if (typeof text !== 'string') fail('실험 파일은 JSON 텍스트여야 합니다.', 'INVALID_JSON');
-  if (text.length > MAX_BYTES || new TextEncoder().encode(text).byteLength > MAX_BYTES) fail('실험 파일은 10 MiB 이하여야 합니다.', 'PROJECT_TOO_LARGE');
+  if (text.length > MAX_PROJECT_BYTES || new TextEncoder().encode(text).byteLength > MAX_PROJECT_BYTES) fail(PROJECT_SIZE_ERROR, 'PROJECT_TOO_LARGE');
   let value; try { value = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text); } catch { fail('JSON 실험 파일을 읽을 수 없습니다.', 'INVALID_JSON'); }
   return validateProject(value);
 }
