@@ -133,6 +133,73 @@ try{
     await change('height-number',28);await page.locator('#part-select').selectOption('force-buoyancy');await page.locator('#focus-forces').click();await paint();const dry=await debug(),buoyancy=dry.forces.find(item=>item.id==='force-buoyancy');assert.equal(buoyancy.visible,false);assert.equal(buoyancy.leaderVisible,false);assert.equal(dry.selectionBoundsM,null);assert.match(dry.zeroForceText,/부력 0.00 N · 방향 없음/);await sceneShot('force-dry-zero-390');
     await mode('equilibrium');assert.equal((await debug()).forces.find(item=>item.id==='force-holder').visible,false);assert.match((await debug()).zeroForceText,/고정력 사용하지 않음/);
   });
+  await check('500px tank and keyboard order match, and compact actions and theme persist through normal use',async()=>{
+    const mobile = await browser.newContext({
+      viewport: { width: 500, height: 900 }, deviceScaleFactor: 2,
+      isMobile: true, hasTouch: true, colorScheme: 'light', acceptDownloads: true,
+    });
+    try {
+      const phone = await mobile.newPage();
+      phone.on('pageerror', e => errors.push(e.message));
+      phone.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+      await phone.goto('http://127.0.0.1:5273/');
+      await phone.waitForFunction(() => window.buoyancyLab?.sceneDebug()?.renderFrame > 1);
+      const initial = await phone.evaluate(() => {
+        const tank = document.querySelector('.observation'), controls = document.querySelector('.controls');
+        return {
+          width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
+          background: getComputedStyle(document.documentElement).backgroundColor,
+          visualOrder: tank.getBoundingClientRect().bottom <= controls.getBoundingClientRect().top,
+          readingOrder: Boolean(tank.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING),
+        };
+      });
+      assert.deepEqual(initial, { width: 500, scrollWidth: 500, background: 'rgb(16, 25, 32)', visualOrder: true, readingOrder: true });
+      const help = phone.getByRole('button', { name: '도움말', exact: true });
+      const toggle = phone.getByRole('button', { name: '밝은 테마', exact: true });
+      const actions = ['새 실험', '열기', '파일 저장', '도움말', '밝은 테마'];
+      for (const name of actions) {
+        const { width, height } = await phone.getByRole('button',{ name, exact: true }).boundingBox();
+        assert.ok(width >= 44 && height >= 44);
+      }
+      await toggle.focus(); await phone.keyboard.press('Tab');
+      assert.equal(await phone.locator(':focus').getAttribute('id'), 'focus');
+      await help.tap(); assert.equal(await phone.locator('#help-dialog').isVisible(), true);
+      await phone.getByRole('button', { name: '닫기', exact: true }).tap();
+      await phone.screenshot({ path: path.join(output, '500px-dark.png') });
+      await toggle.tap(); assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+      await phone.reload();
+      await phone.waitForFunction(() => window.buoyancyLab?.sceneDebug()?.renderFrame > 1);
+      assert.equal(await phone.locator('html').getAttribute('data-theme'), 'light');
+      await phone.screenshot({ path: path.join(output, '500px-light.png') });
+      const part = phone.locator('#part-info'), partSummary = part.locator('summary');
+      assert.equal(await part.evaluate(element => element.open), false);
+      await partSummary.focus(); await phone.keyboard.press('Space');
+      assert.equal(await phone.locator('#part-description').isVisible(), true);
+      await partSummary.tap(); assert.equal(await phone.locator('#part-description').isVisible(), false);
+      await phone.locator('[data-lesson=mass]').tap();
+      assert.equal(await phone.locator('#guide-action').isVisible(), true);
+      await phone.locator('#lesson-guide summary').tap();
+      assert.equal(await phone.locator('#guide-action').isVisible(), false);
+      const mass = phone.locator('#mass-number');
+      await mass.fill('0.8'); await mass.press('Tab');
+      const saved = phone.waitForEvent('download');
+      await phone.getByRole('button', { name: '파일 저장', exact: true }).tap();
+      const source = path.join(output, 'mobile-action.buoyancy.json');
+      await (await saved).saveAs(source);
+      await phone.getByRole('button', { name: '새 실험', exact: true }).tap();
+      assert.equal(await phone.getByRole('button', { name: '되돌리기', exact: true }).isVisible(), true);
+      const chooser = phone.waitForEvent('filechooser');
+      await phone.getByRole('button', { name: '열기', exact: true }).tap();
+      await (await chooser).setFiles(source);
+      await phone.waitForFunction(() => window.buoyancyLab.getState().experiment.config.bodyMassKg === 0.8);
+      assert.equal(await phone.locator('html').getAttribute('data-theme'), 'light');
+      await phone.setViewportSize({ width: 1280, height: 900 });
+      await phone.waitForFunction(() => document.querySelector('#part-info').open);
+      assert.equal(await phone.getByText('파일 저장', { exact: true }).isVisible(), true);
+    } finally {
+      await mobile.close();
+    }
+  });
   await page.setViewportSize({width:1600,height:1000});await page.locator('#new-project').click();await dismiss();await page.evaluate(()=>scrollTo(0,0));await shot('buoyancy-default-viewport');await shot('buoyancy-default-full',true);
   assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
 }catch(error){failure=error;console.error(error.stack);await page?.screenshot({path:path.join(output,'failure.png'),fullPage:true}).catch(()=>{});}

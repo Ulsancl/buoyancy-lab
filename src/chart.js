@@ -2,7 +2,7 @@ import { CONSTANTS_SI } from './model.js';
 import './chart.css';
 
 const NS = 'http://www.w3.org/2000/svg';
-const colors = { current: '#176d65', saved: '#994d24', grid: '#d5dfd6', text: '#435e56' };
+const colors = { current: 'var(--accent)', saved: 'var(--orange)', grid: 'var(--line)', text: 'var(--muted)' };
 const labels = { current: '현재', saved: '보관' };
 const immersionLabels = { dry: '액체 밖', partial: '부분잠김', full: '완전잠김' };
 const poseLabels = {
@@ -63,7 +63,7 @@ function renderForces(container, conditions) {
   for (const value of [-30, -15, 0, 15, 30]) {
     const px = x(value);
     svg.append(
-      line(px, 7, px, 165, value === 0 ? { stroke: '#849e94', 'stroke-width': 1.5 } : {}),
+      line(px, 7, px, 165, value === 0 ? { stroke: 'var(--input-line)', 'stroke-width': 1.5 } : {}),
       svgText(px, 184, reading(value, 0, true), { 'text-anchor': 'middle' }),
     );
   }
@@ -160,7 +160,7 @@ function renderPressure(container, conditions) {
   }
   for (const depth of [0, .08, .16, .24, depthAxisM[1]]) {
     const py = y(depth);
-    svg.append(line(left, py, right, py, depth === 0 ? { stroke: '#849e94' } : {}),
+    svg.append(line(left, py, right, py, depth === 0 ? { stroke: 'var(--input-line)' } : {}),
       svgText(left - 7, py + 3.5, rounded(depth * 100, 0), { 'text-anchor': 'end' }));
   }
   svg.append(svgText(left - 7, 9, 'cm', { 'text-anchor': 'end' }),
@@ -178,7 +178,7 @@ function renderPressure(container, conditions) {
       if (depthM < 0) continue;
       svg.append(svgNode('circle', {
         cx: x(gaugePressurePa), cy: y(depthM), r: 4,
-        fill: face === 'bottom' ? colors[kind] : '#fffffb', stroke: colors[kind], 'stroke-width': 1.75,
+        fill: face === 'bottom' ? colors[kind] : 'var(--surface)', stroke: colors[kind], 'stroke-width': 1.75,
         'data-kind': kind, 'data-profile-face': face, 'data-depth-m': depthM,
         'data-gauge-pressure-pa': gaugePressurePa,
       }));
