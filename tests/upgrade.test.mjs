@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -10,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import { localPathRedactor } from './redact-local-paths.mjs';
 
 // Explicit paths make this opt-in Windows test portable; it never installs an app.
 // Required both phases: BUOYANCY_UPGRADE_GPU_START, _WORKSPACE, _BASELINE,
@@ -39,6 +41,8 @@ const executablePath = preparing ? path.join(oldPackage, 'win-unpacked/Buoyancy 
 if (!preparing) assert.equal(executablePath, path.join(installed, 'Buoyancy Lab.exe'), 'Use the actual per-user installed 1.0 executable');
 const runtime = path.dirname(executablePath), asarFile = path.join(runtime, 'resources/app.asar');
 const profile = path.join(output, 'profile'), originalProfile = path.join(process.env.APPDATA, 'Buoyancy Lab');
+const redactText = localPathRedactor([originalProfile, installed, root, appRoot, os.homedir(), os.tmpdir()]);
+const profileFingerprint = manifest => createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
 function inside(child, parent) { const relative = path.relative(parent, child); return relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative); }
 for (const directory of [baseline, oldPackage, output]) assert.ok(inside(directory, root), 'All evidence paths must stay inside the supplied workspace');
 assert.ok(inside(output, path.join(root, 'output')), 'Synthetic output must be a new workspace/output child');
@@ -107,7 +111,8 @@ else {
   expectedAsar = process.env.BUOYANCY_UPGRADE_NEW_ASAR_SHA256; assert.notEqual(expectedAsar, oldHash);
   assert.equal(await hash(oldReportFile), process.env.BUOYANCY_UPGRADE_PREPARED_SHA256);
   previous = JSON.parse(await fs.readFile(oldReportFile, 'utf8'));
-  assert.equal(previous.status, 'PASSED'); assert.equal(previous.checks.length, 8); assert.equal(previous.profile, profile);
+  assert.equal(previous.status, 'PASSED'); assert.equal(previous.checks.length, 8);
+  assert.equal(path.resolve(output, previous.profile), profile);
   assert.equal(previous.oldASARSHA256, oldHash); assert.equal(previous.baselineSHA256, baselineHash); assert.equal(previous.packageManifestSHA256, packageManifestHash); assert.equal(previous.mode, 'prepare-old'); assert.equal(previous.version, '0.1.0');
   assert.equal(previous.runtimeUnchanged && previous.baselineUnchanged && previous.oldPackageUnchanged && previous.defaultProfileUnchanged, true);
   assert.deepEqual(await tree(profile), previous.syntheticProfileAfter, 'Old synthetic profile changed before restart');
@@ -120,8 +125,12 @@ const packageJSON = JSON.parse(extract('package.json').toString('utf8'));
 assert.equal(packageJSON.name, 'buoyancy-lab'); assert.equal(packageJSON.version, version);
 const main = extract('desktop/main.cjs').toString('utf8');
 assert.match(main, /const APP_ID\s*=\s*['"]com\.buoyancylab\.app['"]/); assert.match(main, /const APP_URL\s*=\s*['"]app:\/\/buoyancy\/['"]/);
-const baselineBefore = await tree(baseline), packageBefore = await tree(oldPackage), runtimeBefore = await tree(runtime), originalBefore = await tree(originalProfile);
-if (!preparing) assert.deepEqual(originalBefore, previous.defaultProfileBefore);
+const baselineBefore = await tree(baseline), packageBefore = await tree(oldPackage), runtimeBefore = await tree(runtime);
+const defaultProfileFingerprint = profileFingerprint(await tree(originalProfile));
+if (!preparing) {
+  const previousFingerprint = previous.defaultProfileFingerprint ?? profileFingerprint(previous.defaultProfileBefore);
+  assert.ok(defaultProfileFingerprint === previousFingerprint, 'The default profile changed between phases');
+}
 if (preparing) { await fs.mkdir(output); await fs.mkdir(profile); }
 const env = { ...process.env, BUOYANCY_LAB_DATA_DIR: profile }; delete env.ELECTRON_RUN_AS_NODE;
 const checks = [], errors = [], remoteRequests = [], processes = [];
@@ -302,27 +311,30 @@ try {
   snapshot = (await getState()).snapshot;
   await page.screenshot({ path: path.join(output, mode + '.png') }); nativeFileSHA256 = await hash(projectFile); bomFileSHA256 = await hash(bomFile); recoveredFileSHA256 = await hash(originalFile);
   await check('observation and native file operations produce no errors or remote requests', async () => { assert.deepEqual(errors, []); assert.deepEqual(remoteRequests, []); });
-} catch (error) { failure = error; process.exitCode = 1; console.error(error.stack); if (page) await page.screenshot({ path: path.join(output, mode + '-failure.png'), timeout: 3000 }).catch(() => {}); }
+} catch (error) { failure = error; process.exitCode = 1; console.error(redactText(error.stack)); if (page) await page.screenshot({ path: path.join(output, mode + '-failure.png'), timeout: 3000 }).catch(() => {}); }
 finally {
   if (app) await closeNormally().catch(error => { failure ??= error; process.exitCode = 1; });
   try {
     assert.deepEqual(await tree(runtime), runtimeBefore); runtimeUnchanged = true;
     assert.deepEqual(await tree(baseline), baselineBefore); baselineUnchanged = true;
     assert.deepEqual(await tree(oldPackage), packageBefore); oldPackageUnchanged = true;
-    assert.deepEqual(await tree(originalProfile), originalBefore); defaultProfileUnchanged = true;
+    assert.ok(profileFingerprint(await tree(originalProfile)) === defaultProfileFingerprint, 'The default profile changed during this phase');
+    defaultProfileUnchanged = true;
     for (const record of processes) { assert.equal(record.exited && record.code === 0 && record.signal === null, true); assert.deepEqual(record.residualPids, []); }
     await waitFor(async () => (residualProcesses = await buoyancyProcesses()).length === 0, 'no residual Buoyancy process');
     if (bounds) { savedWindow = JSON.parse(await fs.readFile(path.join(profile, 'window.json'), 'utf8')); assert.deepEqual(savedWindow, { ...bounds, maximized: false }); if (!preparing) assert.deepEqual(savedWindow, previous.savedWindow); }
     syntheticProfileAfter = await tree(profile);
     checks.push('normal owned-process exit and unchanged runtime, baselines and real profile');
   } catch (error) { failure ??= error; process.exitCode = 1; }
-  const record = { status: failure ? 'FAILED' : 'PASSED', mode, version, sourceVersion: '0.1.0', targetVersion: '1.0.0', executablePath, profile,
+  const record = { status: failure ? 'FAILED' : 'PASSED', mode, version, sourceVersion: '0.1.0', targetVersion: '1.0.0', executablePath, profile: path.relative(output, profile),
     oldASARSHA256: oldHash, oldInstallerSHA256: oldInstallerHash, baselineSHA256: baselineHash, packageManifestSHA256: packageManifestHash,
     ...(preparing ? {} : { newASARSHA256: expectedAsar, preparedOldReportSHA256: await hash(oldReportFile) }),
     checks, observation, snapshot, storage, bounds, display, savedWindow, nativeFileSHA256, bomFileSHA256, recoveredFileSHA256, newNativeFileSHA256,
     gpu, errors, remoteRequests, processes, residualProcesses, runtimeUnchanged, baselineUnchanged, oldPackageUnchanged, defaultProfileUnchanged,
-    defaultProfileBefore: originalBefore, syntheticProfileAfter,
+    defaultProfileFingerprint, syntheticProfileAfter,
     originalRestorationMethod: 'Only this harness synthetic primary key was restored after testing corrupt-text export; user storage was never written.',
     ...(failure ? { failure: failure.message, stack: failure.stack } : {}) };
-  await fs.writeFile(reportFile, JSON.stringify(record, null, 2), { flag: 'wx' }); console.log(`${record.status}: ${checks.length} checks; ${reportFile}; SHA256 ${await hash(reportFile)}`);
+  const diagnostic = JSON.stringify(record, (_key, value) => typeof value === 'string' ? redactText(value) : value, 2);
+  await fs.writeFile(reportFile, diagnostic, { flag: 'wx' });
+  console.log(`${record.status}: ${checks.length} checks; ${path.basename(reportFile)}; SHA256 ${await hash(reportFile)}`);
 }

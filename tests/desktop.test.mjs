@@ -1,13 +1,16 @@
 import { artifactDirectory } from '../scripts/safe-files.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { _electron as electron } from 'playwright';
-import { createProject } from '../src/project.js';
+import { createProject, MAX_PROJECT_BYTES, PROJECT_SIZE_ERROR, serializeProject } from '../src/project.js';
+import { localPathRedactor } from './redact-local-paths.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,9 +28,11 @@ delete env.ELECTRON_RUN_AS_NODE;
 const projectPath = path.join(evidence, '부력 관찰.buoyancy.json');
 const checks = [], errors = [], remoteRequests = [], processes = [];
 const defaultProfilePath = process.platform === 'win32' && process.env.APPDATA ? path.join(process.env.APPDATA, 'Buoyancy Lab') : null;
-let app, page, saved, windowRestoration, gpu, failure, defaultProfile;
+let app, page, saved, windowRestoration, gpu, failure, profileBefore, profileComparison;
 const state = () => page.evaluate(() => window.buoyancyLab.getState());
 const project = () => page.evaluate(() => window.buoyancyLab.project());
+const redactText = localPathRedactor([defaultProfilePath, profile, root, os.homedir(), os.tmpdir()]);
+const report = value => JSON.stringify(value, (_key, item) => typeof item === 'string' ? redactText(item) : item, 2);
 async function profileManifest(directory) {
   if (directory === null) return null;
   const entries = [];
@@ -39,8 +44,11 @@ async function profileManifest(directory) {
     else if (stat.isDirectory()) {
       entries.push({ path: relative, type: 'directory' });
       for (const name of (await fs.readdir(target)).sort()) await visit(path.join(target, name), relative ? `${relative}/${name}` : name);
-    } else if (stat.isFile()) entries.push({ path: relative, bytes: stat.size, sha256: createHash('sha256').update(await fs.readFile(target)).digest('hex') });
-    else throw new Error(`Unsupported default profile entry: ${relative}`);
+    } else if (stat.isFile()) {
+      const hash = createHash('sha256');
+      for await (const chunk of createReadStream(target)) hash.update(chunk);
+      entries.push({ path: relative, bytes: stat.size, sha256: hash.digest('hex') });
+    } else throw new Error('Unsupported default profile entry');
     return true;
   }
   return { exists: await visit(directory, ''), entries };
@@ -135,7 +143,8 @@ async function stableBounds(label) {
 }
 
 try {
-  defaultProfile = { path: defaultProfilePath, before: await profileManifest(defaultProfilePath) };
+  try { profileBefore = await profileManifest(defaultProfilePath); }
+  catch { throw new Error('Could not inspect the default profile before the test'); }
   await launch();
   await check('isolated Buoyancy Lab identity, offline bundle, sandbox and native bridge', async () => {
     assert.equal(page.url(), 'app://buoyancy/');
@@ -275,10 +284,11 @@ try {
       ['future.json', JSON.stringify({ ...saved, schemaVersion: 2 })],
       ['future-model.json', JSON.stringify({ ...saved, modelVersion: 'buoyancy-static-2' })],
       ['invalid-config.json', JSON.stringify({ ...saved, experiment: { config: { ...saved.experiment.config, heldBottomM: 0 } } })],
-      ['too-large.json', ' '.repeat(10 * 1024 * 1024 + 1)],
+      ['too-large.json', ' '.repeat(MAX_PROJECT_BYTES + 1)],
     ]) {
       const file = path.join(evidence, name); await fs.writeFile(file, raw);
-      await openDialog(file); await freshToast(() => page.locator('#open-project').click(), '못|실패|지원|파일');
+      await openDialog(file);
+      await freshToast(() => page.locator('#open-project').click(), name === 'too-large.json' ? PROJECT_SIZE_ERROR : '못|실패|지원|파일');
       sameProject(await project(), before); assert.equal(await fs.readFile(file, 'utf8'), raw);
     }
     const linked = path.join(evidence, 'linked-directory'), originalDirectory = path.join(evidence, 'real-directory');
@@ -292,6 +302,16 @@ try {
     }
     assert.equal(await fs.readFile(path.join(originalDirectory, 'observation.json'), 'utf8'), original);
     assert.equal(await fs.readFile(projectPath, 'utf8'), original);
+  });
+  await check('native save writes canonical JSON for a valid noncanonical IPC input', async () => {
+    const file = path.join(evidence, 'canonical.json');
+    const current = await project();
+    await saveDialog(file);
+    const result = await page.evaluate(({ project }) => window.buoyancyDesktop.saveProject({
+      name: 'canonical.json', contents: '\ufeff ' + JSON.stringify(project) + '\n',
+    }), { project: current });
+    assert.equal(result.canceled, false);
+    assert.equal(await fs.readFile(file, 'utf8'), serializeProject(current));
   });
   await check('native arbitrary SI import keeps exact L/cm conditions on blur and writes the original schema with live pressure details', async () => {
     const original = await project(), precise = structuredClone(original);
@@ -438,23 +458,31 @@ try {
   failure = error; process.exitCode = 1;
   const diagnostic = page ? await page.evaluate(() => ({ toast: document.querySelector('#toast')?.textContent, state: window.buoyancyLab?.getState() })).catch(() => null) : null;
   if (page) await page.screenshot({ path: path.join(output, 'failure.png'), timeout: 3000 }).catch(() => {});
-  await fs.writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, stack: error.stack, checks, errors, remoteRequests, windowRestoration, diagnostic }, null, 2));
-  console.error(error.stack);
+  await fs.writeFile(path.join(output, 'failure.json'), report({ message: error.message, stack: error.stack, checks, errors, remoteRequests, windowRestoration, diagnostic }));
+  console.error(redactText(error.stack));
 } finally {
   if (app) {
     await app.evaluate(() => { globalThis.buoyancyResolveSave?.({ canceled: true }); }).catch(() => {});
     await page?.evaluate(() => window.buoyancyDesktop?.setBusy(false)).catch(() => {});
     await closeNormally().catch(error => { failure ??= error; process.exitCode = 1; });
   }
-  if (defaultProfile) {
+  if (profileBefore) {
     try {
-      defaultProfile.after = await profileManifest(defaultProfilePath);
-      assert.deepEqual(defaultProfile.after, defaultProfile.before, 'The real default profile must remain untouched');
-      defaultProfile.unchanged = true;
-    } catch (error) { defaultProfile.unchanged = false; failure ??= error; process.exitCode = 1; }
+      const after = await profileManifest(defaultProfilePath);
+      const beforeEntries = new Map(profileBefore.entries.map(entry => [entry.path, JSON.stringify(entry)]));
+      const afterEntries = new Map(after.entries.map(entry => [entry.path, JSON.stringify(entry)]));
+      const changedEntries = [...new Set([...beforeEntries.keys(), ...afterEntries.keys()])]
+        .filter(key => beforeEntries.get(key) !== afterEntries.get(key)).length;
+      profileComparison = { checked: true, unchanged: changedEntries === 0, changedEntries };
+      assert.equal(changedEntries, 0, 'The real default profile must remain untouched');
+    } catch {
+      profileComparison ??= { checked: false };
+      failure ??= new Error('The real default profile could not be verified as unchanged');
+      process.exitCode = 1;
+    }
   }
-  await fs.writeFile(path.join(output, 'result.json'), JSON.stringify({ status: failure ? 'FAILED' : 'PASSED', version: expectedVersion,
-    packaged, executablePath, profile, evidence, checks, errors, remoteRequests, processes, defaultProfile, windowRestoration, gpu,
-    ...(failure ? { failure: failure.message } : {}) }, null, 2));
+  await fs.writeFile(path.join(output, 'result.json'), report({ status: failure ? 'FAILED' : 'PASSED', version: expectedVersion,
+    packaged, checks, errors, remoteRequests, processes, defaultProfile: profileComparison, windowRestoration, gpu,
+    ...(failure ? { failure: failure.message } : {}) }));
   console.log(`Desktop validation: ${checks.length} checks ${failure ? 'completed before failure' : 'passed'}.`);
 }
