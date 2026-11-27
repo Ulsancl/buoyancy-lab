@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, getSnapshot } from './model.js';
+import { DEFAULT_CONFIG, CONSTANTS_SI, getSnapshot } from './model.js';
 const config = patch => ({ ...DEFAULT_CONFIG, ...patch });
 export const LESSONS = {
   mass: { title:'무게를 더하면 얼마나 잠길까요?', config:config({}),
@@ -18,6 +18,8 @@ export function createGuide(id){if(!Object.hasOwn(LESSONS,id))throw new RangeErr
 export function lessonReady(guide,experiment,view){
   if(!guide||guide.status!=='active')return false;
   const step=LESSONS[guide.id]?.steps[guide.stage];if(!step)return false;
+  const {fluidVolumeM3=CONSTANTS_SI.fluidVolumeM3,gravityMps2=CONSTANTS_SI.gravityMps2}=experiment.config;
+  if(Math.abs(fluidVolumeM3-CONSTANTS_SI.fluidVolumeM3)>1e-12||Math.abs(gravityMps2-CONSTANTS_SI.gravityMps2)>1e-9)return false;
   const keys=['bodyMassKg','bodyVolumeM3','fluidDensityKgM3','mode'];if(step.config.mode==='held')keys.push('heldBottomM');
   return keys.every(key=>typeof step.config[key]==='number'?Math.abs(experiment.config[key]-step.config[key])<=1e-9*Math.max(1,Math.abs(step.config[key])):experiment.config[key]===step.config[key])&&(step.pressures===undefined||view?.pressures===step.pressures);
 }
@@ -26,4 +28,4 @@ export function confirmObservation(guide,experiment,view){
   const s=getSnapshot(experiment);guide.evidence.push({experiment:structuredClone(experiment),submergedFraction:s.submergedFraction,waterLevelM:s.waterLevelM,buoyancyN:s.buoyancyN,weightN:s.weightN,holdingForceYN:s.holdingForceYN,bottomGaugePressurePa:s.bottomGaugePressurePa,topGaugePressurePa:s.topGaugePressurePa,pressuresVisible:Boolean(view.pressures)});
   guide.stage++;if(guide.stage===LESSONS[guide.id].steps.length)guide.status='completed';return true;
 }
-export function guideText(guide){const lesson=LESSONS[guide.id];return{action:guide.status==='completed'?'관찰을 마쳤습니다. 조건을 더 바꿔 자유롭게 실험하세요.':lesson.steps[guide.stage].action,result:guide.status==='completed'?lesson.result:'',total:lesson.steps.length};}
+export function guideText(guide){const lesson=LESSONS[guide.id];return{action:guide.status==='completed'?'관찰을 마쳤습니다. 조건을 더 바꿔 자유롭게 실험하세요.':`${lesson.steps[guide.stage].action} 초기 액체량 ${CONSTANTS_SI.fluidVolumeM3*1000} L와 중력 가속도 ${CONSTANTS_SI.gravityMps2} m/s²를 유지하세요.`,result:guide.status==='completed'?lesson.result:'',total:lesson.steps.length};}

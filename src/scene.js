@@ -1,20 +1,28 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { COMPONENTS, DEFAULT_VIEW, GEOMETRY_SI as G, APPARATUS_SI as A, getApparatusGeometry, getBodyGeometry, getFluidBoxes, surfaceFromBoxes } from './geometry.js';
 import { CONSTANTS_SI as C } from './model.js';
 import { drilledPlateGeometry, sectionedDrilledPlateGeometry, annularGeometry, updateLinePoints, setExactArrowLength } from './geometry-meshes.js';
+import { acrylicMaterial, brushedFinishTexture, rulerTexture, waterMaterial } from './scene-materials.js';
 
 const V = (x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 const clean = n=>Object.is(n,-0)?0:n;
 const array = vector=>vector.toArray().map(clean);
 const partIds = new Set(COMPONENTS.map(p=>p.id));
-const copper = 0xc98857, teal = 0x178f94, weightColor = 0xb86d41, holderColor = 0x7656ac;
+const copper = 0xbf8150, teal = 0x117982, weightColor = 0x9b4d27, holderColor = 0x6b449d;
+const pressureMaxPa = 4000, pressureWorldPerPa = 0.000015;
+const pressureLow = new THREE.Color(0x58c8d9), pressureAmber = new THREE.Color(0xe5a13d), pressureHigh = new THREE.Color(0xb35d1a);
+const gaugeFormat = new Intl.NumberFormat('ko-KR');
 const forceNames={'force-buoyancy':'부력','force-weight':'무게','force-holder':'고정력'};
 const forceZero=force=>Math.abs(force)*G.forceWorldPerN<=1e-10;
 const forceMagnitude=force=>Math.abs(force)<.01?'<0.01':Math.abs(force).toFixed(2);
 const forceText=(id,force)=>forceZero(force)?`${forceNames[id]} 0.00 N · 방향 없음`:`${force>0?'↑':'↓'} ${forceNames[id]} ${forceMagnitude(force)} N`;
-const pressureColor = pa=>new THREE.Color(0x58c8d9).lerp(new THREE.Color(0xe5a13d),Math.max(0,Math.min(1,pa/G.pressureMaxPa)));
+function pressureColor(pa) {
+  if(pa<=G.pressureMaxPa)return pressureLow.clone().lerp(pressureAmber,Math.max(0,pa/G.pressureMaxPa));
+  return pressureAmber.clone().lerp(pressureHigh,Math.min(1,(pa-G.pressureMaxPa)/(pressureMaxPa-G.pressureMaxPa)));
+}
 
 function boxGeometry(bounds) {
   return new THREE.BoxGeometry(...bounds.max.map((n,i)=>n-bounds.min[i]));
@@ -60,20 +68,20 @@ export class BuoyancyScene {
   constructor(container,{onSelect=()=>{},onCameraChange=()=>{}}={}) {
     this.container=container;this.onSelect=onSelect;this.onCameraChange=onCameraChange;
     this.view={...DEFAULT_VIEW};this.snapshot=null;this.disposed=false;this.suppressCamera=false;this.focusContext=null;this.materials=[];this.labels=new Map();this.inspection=null;this.shapeKey=null;
-    this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0xeff3ec);
+    this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0xe7ede8);
     this.camera=new THREE.PerspectiveCamera(37,1,.003,160);this.camera.position.set(.85,.70,.96);this.camera.up.set(0,1,0);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));this.renderer.outputColorSpace=THREE.SRGBColorSpace;
-    this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.16;
+    this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.08;
     this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
     this.renderer.domElement.className='buoyancy-canvas';this.renderer.domElement.setAttribute('aria-label','부력 실험대 3D 관찰. 드래그하여 회전, 휠로 확대할 수 있습니다.');
     container.classList.add('buoyancy-scene');container.appendChild(this.renderer.domElement);
     const pmrem=new THREE.PMREMGenerator(this.renderer),room=new RoomEnvironment();
     this.environment=pmrem.fromScene(room,.035);this.scene.environment=this.environment.texture;room.dispose();pmrem.dispose();
-    this.scene.add(new THREE.HemisphereLight(0xffffff,0x94a49d,2.5));
-    const key=new THREE.DirectionalLight(0xfff3dd,4.2);key.position.set(-.6,1.4,.9);key.castShadow=true;
+    this.scene.add(new THREE.HemisphereLight(0xffffff,0x94a49d,1.9));
+    const key=new THREE.DirectionalLight(0xfff3dd,3.8);key.position.set(-.6,1.4,.9);key.castShadow=true;
     key.shadow.mapSize.set(1536,1536);Object.assign(key.shadow.camera,{left:-.8,right:.8,top:.9,bottom:-.7,near:.1,far:3});key.shadow.bias=-.00015;key.shadow.normalBias=.001;this.scene.add(key);
-    const rim=new THREE.DirectionalLight(0xb7e9ec,2.5);rim.position.set(.8,.7,-.7);this.scene.add(rim);
+    const rim=new THREE.DirectionalLight(0xb7e9ec,1.9);rim.position.set(.8,.7,-.7);this.scene.add(rim);
     this.parts=new Map(COMPONENTS.map(p=>{const group=new THREE.Group();group.name=p.id;group.userData.partId=p.id;this.scene.add(group);return [p.id,group];}));
     this.buildApparatus();this.buildObservations();this.buildOverlay();
     this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.target.set(0,.265,0);
@@ -110,46 +118,56 @@ export class BuoyancyScene {
   }
   buildApparatus() {
     this.apparatus=getApparatusGeometry();const apparatus=this.apparatus;
-    const boundsMesh=(part,bounds,material,cast=true)=>this.cuboid(part,bounds.max.map((v,i)=>v-bounds.min[i]),bounds.max.map((v,i)=>(v+bounds.min[i])/2),material,cast);
-    const steel=this.material({color:0xb8c6c2,metalness:.87,roughness:.27});
-    const brushed=this.material({color:0x7e9494,metalness:.84,roughness:.34});
-    const cutMetal=this.material({color:0x415757,metalness:.70,roughness:.39});
-    const dark=this.material({color:0x324b4b,metalness:.45,roughness:.47});
+    const boundsMesh=(part,bounds,material,cast=true,radius=0)=>{
+      const size=bounds.max.map((v,i)=>v-bounds.min[i]),center=bounds.max.map((v,i)=>(v+bounds.min[i])/2);
+      return radius?this.mesh(part,new RoundedBoxGeometry(...size,2,radius),material,center,cast):this.cuboid(part,size,center,material,cast);
+    };
+    const grain=brushedFinishTexture();
+    const steel=this.material({color:0xa9b4b5,metalness:.90,roughness:.30,roughnessMap:grain,bumpMap:grain,bumpScale:.000030});
+    const brushed=this.material({color:0x73888a,metalness:.85,roughness:.42,roughnessMap:grain,bumpMap:grain,bumpScale:.000040});
+    const cutMetal=this.material({color:0x59696b,metalness:.72,roughness:.43});
+    const dark=this.material({color:0x304244,metalness:.42,roughness:.44});
     const rubber=this.material({color:0x243537,metalness:.03,roughness:.91});
-    const ivory=this.material({color:0xe5eade,metalness:.13,roughness:.46});
-    const accent=this.material({color:teal,metalness:.36,roughness:.37});
-    const glass=new THREE.MeshPhysicalMaterial({color:0xb7e4df,metalness:0,roughness:.10,transparent:true,opacity:.19,depthWrite:false,side:THREE.DoubleSide,clearcoat:1,clearcoatRoughness:.05});this.materials.push(glass);
-    this.base=boundsMesh('tank-shell',apparatus.base,ivory);this.deck=boundsMesh('tank-shell',apparatus.deck,brushed);this.feet=[];
+    const ivory=this.material({color:0xcdd5cc,metalness:.12,roughness:.52});
+    const accent=this.material({color:0x14777a,metalness:.49,roughness:.37,roughnessMap:grain,bumpMap:grain,bumpScale:.000025});
+    const glass=acrylicMaterial(C.tankHeightM);this.materials.push(glass);
+    const gasket=this.material({color:0x2c5050,metalness:.2,roughness:.57});
+    this.base=boundsMesh('tank-shell',apparatus.base,ivory,true,.004);this.deck=boundsMesh('tank-shell',apparatus.deck,brushed,true,.0015);this.feet=[];
     for(const x of [-.262,.262])for(const z of [-.19,.19]){
       this.feet.push(this.cylinder('tank-shell',.021,A.footHeightM,[x,(apparatus.footTopM+apparatus.footBottomM)/2,z],rubber));
       this.cylinder('tank-shell',.013,.012,[x,apparatus.footTopM+.006,z],steel);
       this.cylinder('tank-shell',.004,.003,[x,-.001,z],steel);
     }
     const X=C.tankWidthM/2,Z=C.tankDepthM/2,H=C.tankHeightM,t=G.wallThicknessM;
-    this.glassFloor=boundsMesh('tank-shell',apparatus.floor,glass,false);
-    this.frontWall=this.cuboid('tank-shell',[C.tankWidthM+2*t,H,t],[0,H/2,Z+t/2],glass,false);
-    this.cuboid('tank-shell',[C.tankWidthM+2*t,H,t],[0,H/2,-Z-t/2],glass,false);
-    for(const x of [-X-t/2,X+t/2])this.cuboid('tank-shell',[t,H,C.tankDepthM],[x,H/2,0],glass,false);
+    const acrylic=mesh=>{mesh.renderOrder=6;return mesh;};
+    this.glassFloor=acrylic(boundsMesh('tank-shell',apparatus.floor,glass,false));
+    this.frontWall=acrylic(this.cuboid('tank-shell',[C.tankWidthM+2*t,H,t],[0,H/2,Z+t/2],glass,false));
+    acrylic(this.cuboid('tank-shell',[C.tankWidthM+2*t,H,t],[0,H/2,-Z-t/2],glass,false));
+    for(const x of [-X-t/2,X+t/2])acrylic(this.cuboid('tank-shell',[t,H,C.tankDepthM],[x,H/2,0],glass,false));
     for(const x of [-X-t,X+t])for(const z of [-Z-t,Z+t]){
-      this.cuboid('tank-shell',[.011,H+.015,.011],[x,H/2,z],steel);
-      for(const y of [.013,.483])this.cylinder('tank-shell',.0032,.015,[x,y,z],dark,'z');
+      this.mesh('tank-shell',new RoundedBoxGeometry(.011,H+.015,.011,2,.0015),steel,[x,H/2,z]);
+      for(const y of [.013,H-.017])this.cylinder('tank-shell',.0032,.015,[x,y,z],dark,'z');
     }
     for(const z of [-Z-t,Z+t]){
-      this.cuboid('tank-shell',[C.tankWidthM+.027,.008,.012],[0,H+.003,z],brushed);
-      this.cuboid('tank-shell',[C.tankWidthM+.027,.009,.012],[0,.003,z],steel);
+      this.mesh('tank-shell',new RoundedBoxGeometry(C.tankWidthM+.027,.008,.012,2,.0013),brushed,[0,H+.003,z]);
+      this.mesh('tank-shell',new RoundedBoxGeometry(C.tankWidthM+.027,.009,.012,2,.0013),steel,[0,.003,z]);
+      this.cuboid('tank-shell',[C.tankWidthM,.003,.004],[0,H-.002,z],gasket,false);
     }
-    for(const x of [-X-t,X+t])this.cuboid('tank-shell',[.012,.008,C.tankDepthM+.02],[x,H+.003,0],brushed);
+    for(const x of [-X-t,X+t]){
+      this.mesh('tank-shell',new RoundedBoxGeometry(.012,.008,C.tankDepthM+.02,2,.0013),brushed,[x,H+.003,0]);
+      this.cuboid('tank-shell',[.004,.003,C.tankDepthM],[x,H-.002,0],gasket,false);
+    }
     this.cutEdges=new THREE.Group();this.parts.get('tank-shell').add(this.cutEdges);
     for(const x of [-X,X])this.cutEdges.add(line([[x,0,Z],[x,H,Z]],0x4d9690));
-    const nameMaterial=new THREE.MeshStandardMaterial({map:plateTexture('BUOYANCY / 38.5 L'),roughness:.64,metalness:.08});this.materials.push(nameMaterial);
-    const namePlate=this.mesh('tank-shell',new THREE.PlaneGeometry(.17,.022),nameMaterial,[0,(apparatus.base.min[1]+apparatus.base.max[1])/2,.2356],false);namePlate.rotation.x=0;
+    const nameMaterial=this.material({map:plateTexture('부력 실험 수조',{color:'#dbe7e0',background:'#324b4b'}),roughness:.48,metalness:.21});
+    this.mesh('tank-shell',new THREE.PlaneGeometry(.13,.018),nameMaterial,[0,(apparatus.base.min[1]+apparatus.base.max[1])/2,.2352],false);
     for(const x of [-G.framePostXM,G.framePostXM]){
       this.cuboid('holding-frame',[.025,.025,.067],[x,apparatus.framePadBottomM+.0125,G.frameBackZM],dark);
       this.cuboid('holding-frame',[.017,G.frameHeightM,.018],[x,G.frameHeightM/2,G.frameBackZM],steel);
       this.cuboid('holding-frame',[.006,G.frameHeightM-.035,.003],[x,.31,G.frameBackZM+.010],dark);
       for(const y of [.035,.595])this.cylinder('holding-frame',.004,.020,[x,y,G.frameBackZM+.009],dark,'z');
     }
-    this.guideRail=boundsMesh('holding-frame',apparatus.rail,brushed);
+    this.guideRail=boundsMesh('holding-frame',apparatus.rail,brushed,true,.001);
     this.sleeveWalls={};for(const key of ['lower','upper','rear'])this.sleeveWalls[key]=boundsMesh('holding-carriage',apparatus.walls[key],accent);
     const front=apparatus.walls.front;
     this.sleeveFront=this.mesh('holding-carriage',drilledPlateGeometry(A.sleeveSizeM[0],front.max[1]-front.min[1],front.max[2]-front.min[2]-A.padPocketDepthM,A.clampBoreRadiusM),[accent,steel],[0,A.railCenterM[1],front.min[2]+A.padPocketDepthM]);
@@ -164,48 +182,73 @@ export class BuoyancyScene {
     this.clampScrew=this.cylinder('holding-carriage',A.screwRadiusM,apparatus.screw.maxZM-apparatus.screw.minZM,apparatus.screw.center,steel,'z');
     this.clampWasher=this.mesh('holding-carriage',annularGeometry(.0031,.006,.001),steel,[0,A.railCenterM[1],front.max[2]]);
     this.knob=this.cylinder('holding-carriage',A.knobRadiusM,A.knobLengthM,[0,A.railCenterM[1],A.knobCenterZM],dark,'z');
-    for(let n=0;n<24;n++){const angle=n*Math.PI/12;this.cylinder('holding-carriage',.0012,.014,[Math.cos(angle)*.0185,A.railCenterM[1]+Math.sin(angle)*.0185,A.knobCenterZM],steel,'z');}
+    for(let n=0;n<24;n++){const angle=n*Math.PI/12;this.cylinder('holding-carriage',.0012,.014,[Math.cos(angle)*.0185,A.railCenterM[1]+Math.sin(angle)*.0185,A.knobCenterZM],brushed,'z');}
+    const knobFace=A.knobCenterZM+A.knobLengthM/2;
+    this.mesh('holding-carriage',annularGeometry(.005,.011,.0008),steel,[0,A.railCenterM[1],knobFace]);
+    const socket=this.mesh('holding-carriage',new THREE.CircleGeometry(.0045,6),rubber,[0,A.railCenterM[1],knobFace+.0001],false);
+    socket.rotation.z=Math.PI/6;
     // Small cap/washer heads indicate assembled external joints, not submerged rods.
     for(const x of [-.025,.025])for(const z of [A.railCenterM[2]-.016,A.railCenterM[2]+.016])this.cylinder('holding-carriage',.0025,.0015,[x,apparatus.sleeve.max[1]+.00075,z],steel);
     this.holdingLink=line([[...G.holdingAnchorM],[0,.3,0]],0x795cb0,1,true);this.parts.get('holding-link').add(this.holdingLink);
     this.linkContact=this.mesh('holding-link',new THREE.SphereGeometry(.0038,16,8),this.material({color:holderColor,metalness:.1,roughness:.4}),[0,.3,0],false);
-    const bodyMat=this.material({color:copper,metalness:.72,roughness:.32});
+    const bodyMat=this.material({color:copper,metalness:.62,roughness:.34,roughnessMap:grain,bumpMap:grain,bumpScale:.000021});
     this.body=this.mesh('test-body',new THREE.BoxGeometry(.1,.1,.1),bodyMat,[0,.2,0]);
     this.bodyEdges=new THREE.LineSegments(new THREE.EdgesGeometry(this.body.geometry),new THREE.LineBasicMaterial({color:0x77492e,transparent:true,opacity:.75}));this.parts.get('test-body').add(this.bodyEdges);
-    const wetMat=new THREE.MeshStandardMaterial({color:0x339a98,metalness:.37,roughness:.32,transparent:true,opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1});this.materials.push(wetMat);
+    const wetMat=this.material({color:0x2e9b9c,metalness:.22,roughness:.37,transparent:true,opacity:.69,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1});
     this.submerged=this.mesh('submerged-volume',new THREE.BoxGeometry(.1,.04,.1),wetMat,[0,.2,0],false);
-    const waterMat=new THREE.MeshPhysicalMaterial({color:0x41bebd,metalness:.03,roughness:.15,transparent:true,opacity:.17,depthWrite:false,side:THREE.DoubleSide,clearcoat:.6,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});this.materials.push(waterMat);
-    this.water=this.mesh('fluid-volume',new THREE.BufferGeometry(),waterMat,[0,0,0],false);this.water.renderOrder=4;this.submerged.renderOrder=2;
-    this.waterline=line([[-X,.22,-Z],[X,.22,-Z],[X,.22,Z],[-X,.22,Z],[-X,.22,-Z]],0x188b90);this.parts.get('free-surface').add(this.waterline);
-    this.surfaceOpening=line([[-.05,.22,-.05],[.05,.22,-.05],[.05,.22,.05],[-.05,.22,.05],[-.05,.22,-.05]],0x228e89);this.parts.get('free-surface').add(this.surfaceOpening);
+    this.waterMaterial=waterMaterial({width:C.tankWidthM,depth:C.tankDepthM,bodyWidth:C.bodyWidthM,bodyDepth:C.bodyDepthM});
+    Object.assign(this.waterMaterial,{polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});this.materials.push(this.waterMaterial);
+    this.water=this.mesh('fluid-volume',new THREE.BufferGeometry(),this.waterMaterial,[0,0,0],false);this.water.renderOrder=4;this.submerged.renderOrder=2;
+    this.waterline=line([[-X,.22,-Z],[X,.22,-Z],[X,.22,Z],[-X,.22,Z],[-X,.22,-Z]],0x16878b);this.parts.get('free-surface').add(this.waterline);
+    this.surfaceOpening=line([[-.05,.22,-.05],[.05,.22,-.05],[.05,.22,.05],[-.05,.22,.05],[-.05,.22,-.05]],0x138285);this.parts.get('free-surface').add(this.surfaceOpening);
+    for(const edge of [this.waterline,this.surfaceOpening]){edge.material.depthWrite=false;edge.renderOrder=5;}
     this.hydroSurfacePatch=this.mesh('free-surface',new THREE.PlaneGeometry(.18,.18),new THREE.MeshBasicMaterial({color:0x74c9c2,transparent:true,opacity:.22,side:THREE.DoubleSide,depthWrite:false}),[0,.22,0],false);this.hydroSurfacePatch.visible=false;
-    this.cuboid('level-scale',[.030,.505,.004],[.229,.25,.184],ivory,false);
-    for(let cm=0;cm<=50;cm++){
-      const y=cm/100,major=cm%5===0;
-      this.parts.get('level-scale').add(line([[.214,y,.187],[major?.228:.222,y,.187]],major?0x53716f:0x9eafa4));
-      if(major){const map=plateTexture(String(cm),{size:48,background:'#e5eade'});const m=new THREE.MeshBasicMaterial({map,transparent:false});this.materials.push(m);this.mesh('level-scale',new THREE.PlaneGeometry(.014,.008),m,[.235,y,.1871],false);}
-    }
-    this.emptyLevel=line([[-.244,C.emptyWaterLevelM,.182],[.207,C.emptyWaterLevelM,.182]],0x78938f,1,true);this.parts.get('level-scale').add(this.emptyLevel);
-    this.levelMarker=this.mesh('level-scale',new THREE.ConeGeometry(.006,.014,3),accent,[.205,.22,.189],false);this.levelMarker.rotation.z=-Math.PI/2;
-    const ground=new THREE.Mesh(new THREE.PlaneGeometry(20,20),this.material({color:0xe8eee6,roughness:.92,metalness:0}));ground.rotation.x=-Math.PI/2;ground.position.y=apparatus.groundYM;ground.receiveShadow=true;this.scene.add(ground);this.ground=ground;
+    const rulerHeight=H+.034,rulerCenter=rulerHeight/2-.010;
+    this.mesh('level-scale',new RoundedBoxGeometry(.034,rulerHeight,.004,2,.001),brushed,[.229,rulerCenter,.184],false);
+    const rulerFace=new THREE.MeshBasicMaterial({map:rulerTexture(Math.round(H*100)),toneMapped:false});this.materials.push(rulerFace);
+    this.mesh('level-scale',new THREE.PlaneGeometry(.032,rulerHeight),rulerFace,[.229,rulerCenter,.1862],false);
+    this.emptyLevel=line([[-.244,0,.182],[.211,0,.182]],0x637e7d,1,true);this.emptyLevel.material.opacity=.56;this.emptyLevel.material.depthWrite=false;this.emptyLevel.renderOrder=7;this.parts.get('level-scale').add(this.emptyLevel);
+    const markerMaterial=new THREE.MeshBasicMaterial({color:teal});this.materials.push(markerMaterial);
+    this.levelMarker=this.mesh('level-scale',new THREE.ConeGeometry(.005,.012,3),markerMaterial,[.205,0,.189],false);this.levelMarker.rotation.z=-Math.PI/2;
+    const ground=new THREE.Mesh(new THREE.PlaneGeometry(20,20),this.material({color:0xd5dfd9,roughness:.92,metalness:0}));ground.rotation.x=-Math.PI/2;ground.position.y=apparatus.groundYM;ground.receiveShadow=true;this.scene.add(ground);this.ground=ground;
     this.selection=new THREE.Box3Helper(new THREE.Box3(),0xdfad59);this.selection.material.depthTest=false;this.selection.material.transparent=true;this.selection.material.opacity=.83;this.selection.renderOrder=20;this.scene.add(this.selection);this.selection.visible=false;
   }
   makeArrow(id,color) {
-    const arrow=new THREE.ArrowHelper(V(0,1,0),V(),.01,color,.004,.003);arrow.line.material.linewidth=2;arrow.line.material.depthTest=false;arrow.cone.material.depthTest=false;arrow.renderOrder=15;
+    const arrow=new THREE.ArrowHelper(V(0,1,0),V(),.01,color,.004,.003);
+    for(const piece of [arrow.line,arrow.cone]){
+      Object.assign(piece.material,{transparent:true,depthTest:false,depthWrite:false,toneMapped:false});
+      piece.renderOrder=15;piece.userData.pickOpaque=true;
+    }
+    const shaft=new THREE.Mesh(this.arrowShaftGeometry,arrow.cone.material);
+    shaft.renderOrder=15;shaft.userData.ignorePick=true;arrow.line.add(shaft);
     this.parts.get(id).add(arrow);return arrow;
   }
+  sizeArrow(arrow,length,headLength,headWidth) {
+    setExactArrowLength(arrow,length,headLength,headWidth);
+    const radius=Math.min(.00085,headWidth*.23);
+    arrow.line.children[0].scale.set(radius,1,radius);
+  }
   buildObservations() {
+    this.arrowShaftGeometry=new THREE.CylinderGeometry(1,1,1,10).translate(0,.5,0);
     this.forceArrows=new Map([['force-buoyancy',teal],['force-weight',weightColor],['force-holder',holderColor]].map(([id,color])=>[id,this.makeArrow(id,color)]));
     this.forceLeaders=new Map([...this.forceArrows].map(([id,arrow])=>{const l=line([[0,0,0],[.1,0,0]],arrow.line.material.color,1,true);this.parts.get(id).add(l);return [id,l];}));
-    this.pressureArrows=new Map(['pressure-bottom','pressure-top'].map(id=>[id,[-.025,0,.025].map(x=>{const a=this.makeArrow(id,0x58c8d9);a.userData.localX=x;return a;})]));
-    this.pressureDots=[];for(let n=0;n<9;n++)this.pressureDots.push(this.mesh('pressure-bottom',new THREE.SphereGeometry(.0028,12,8),this.material({color:0x58c8d9,metalness:.1,roughness:.5}),[.054,.2,0],false));
+    this.pressureArrows=new Map(['pressure-bottom','pressure-top'].map(id=>[id,[-.025,0,.025].map(x=>{const a=this.makeArrow(id,pressureLow);a.userData.localX=x;return a;})]));
+    this.pressureDots=[];for(let n=0;n<9;n++)this.pressureDots.push(this.mesh('pressure-bottom',new THREE.SphereGeometry(.0028,12,8),new THREE.MeshBasicMaterial({color:pressureLow,toneMapped:false}),[.054,.2,0],false));
   }
   buildOverlay() {
     this.overlay=document.createElement('div');this.overlay.className='buoyancy-overlay';
     this.poseNote=document.createElement('div');this.poseNote.className='buoyancy-pose-note';this.poseNote.setAttribute('role','status');
     this.forceLegend=document.createElement('div');this.forceLegend.className='buoyancy-force-legend';
     this.forceZeroNote=document.createElement('div');this.forceZeroNote.className='buoyancy-force-zero';
-    this.pressureLegend=document.createElement('div');this.pressureLegend.className='buoyancy-pressure-legend';this.pressureLegend.textContent='압력색 0 — 3,000 Pa · 부력을 만드는 표면 압력';
+    this.pressureLegend=document.createElement('div');this.pressureLegend.className='buoyancy-pressure-legend';
+    const scaleHeader=document.createElement('div'),ramp=document.createElement('div'),ticks=document.createElement('div');
+    scaleHeader.className='buoyancy-pressure-heading';
+    scaleHeader.append(Object.assign(document.createElement('strong'),{textContent:'게이지 압력'}),Object.assign(document.createElement('span'),{textContent:`면 화살표 ${(pressureWorldPerPa*1000).toFixed(3)} mm/Pa`}));
+    ramp.className='buoyancy-pressure-ramp';ramp.setAttribute('aria-hidden','true');
+    ramp.style.backgroundImage=`linear-gradient(90deg, ${[0,.125,.25,.375,.5,.625,.75,.875,1].map(fraction=>`#${pressureColor(pressureMaxPa*fraction).getHexString()}`).join(', ')})`;
+    ticks.className='buoyancy-pressure-ticks';
+    for(const pa of [0,pressureMaxPa/2,pressureMaxPa])ticks.append(Object.assign(document.createElement('span'),{textContent:`${gaugeFormat.format(pa)} Pa`}));
+    this.pressureLegend.append(scaleHeader,ramp,ticks);
     this.help=document.createElement('div');this.help.className='buoyancy-scene-help';this.help.textContent='드래그 회전 · 휠 확대 · 1 m = 세계 좌표 1';
     this.labelLayer=document.createElement('div');this.labelLayer.className='buoyancy-label-layer';
     this.svg=document.createElementNS('http://www.w3.org/2000/svg','svg');this.svg.classList.add('buoyancy-label-leaders');
@@ -213,12 +256,15 @@ export class BuoyancyScene {
     for(const p of COMPONENTS){
       const button=document.createElement('button');button.type='button';button.className='buoyancy-label';button.textContent=p.label;button.dataset.part=p.id;button.addEventListener('click',()=>this.onSelect(p.id));
       if(Object.hasOwn(forceNames,p.id))button.classList.add('buoyancy-force-label');
+      if(['free-surface','submerged-volume'].includes(p.id))button.classList.add('buoyancy-water-label');
       const leader=document.createElementNS('http://www.w3.org/2000/svg','path');const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('r','2.7');
       this.labelLayer.appendChild(button);this.svg.append(leader,dot);this.labels.set(p.id,{button,leader,dot,anchor:null});
     }
   }
   update(snapshot,view=DEFAULT_VIEW) {
     if(this.disposed)return;this.snapshot=snapshot;this.view={...DEFAULT_VIEW,...view};
+    const H=snapshot.waterLevelM,X=C.tankWidthM/2,Z=C.tankDepthM/2,x=C.bodyWidthM/2,z=C.bodyDepthM/2;
+    const cutsSurface=H>snapshot.bodyBottomM&&H<=snapshot.bodyTopM;
     const shapeKey=JSON.stringify([snapshot.bodyBottomM,snapshot.bodyHeightM,snapshot.waterLevelM]);
     if(shapeKey!==this.shapeKey){
       const {body,submerged}=getBodyGeometry(snapshot);placeBox(this.body,body);
@@ -227,12 +273,13 @@ export class BuoyancyScene {
       const surface=surfaceFromBoxes(getFluidBoxes(snapshot));this.water.geometry.dispose();this.water.geometry=new THREE.BufferGeometry();
       this.water.geometry.setAttribute('position',new THREE.Float32BufferAttribute(surface.positions,3));this.water.geometry.setAttribute('normal',new THREE.Float32BufferAttribute(surface.normals,3));this.water.geometry.computeBoundingBox();this.water.geometry.computeBoundingSphere();this.shapeKey=shapeKey;
       const patch=new THREE.Shape();patch.moveTo(-.09,-.09);patch.lineTo(.09,-.09);patch.lineTo(.09,.09);patch.lineTo(-.09,.09);patch.closePath();
-      if(snapshot.immersion==='partial'){const hole=new THREE.Path();hole.moveTo(-.05,-.05);hole.lineTo(-.05,.05);hole.lineTo(.05,.05);hole.lineTo(.05,-.05);hole.closePath();patch.holes.push(hole);}
+      if(cutsSurface){const hole=new THREE.Path();hole.moveTo(-x,-z);hole.lineTo(-x,z);hole.lineTo(x,z);hole.lineTo(x,-z);hole.closePath();patch.holes.push(hole);}
       this.hydroSurfacePatch.geometry.dispose();this.hydroSurfacePatch.geometry=new THREE.ShapeGeometry(patch);this.hydroSurfacePatch.geometry.rotateX(-Math.PI/2);
     }
-    const H=snapshot.waterLevelM,X=C.tankWidthM/2,Z=C.tankDepthM/2;
+    this.waterMaterial.uniforms.elevation.value=H;this.waterMaterial.uniforms.cutsSurface.value=cutsSurface;
     setLine(this.waterline,[[-X,H,-Z],[X,H,-Z],[X,H,Z],[-X,H,Z],[-X,H,-Z]]);
-    this.surfaceOpening.visible=snapshot.immersion==='partial';setLine(this.surfaceOpening,[[-.05,H,-.05],[.05,H,-.05],[.05,H,.05],[-.05,H,.05],[-.05,H,-.05]]);
+    this.surfaceOpening.visible=cutsSurface;setLine(this.surfaceOpening,[[-x,H,-z],[x,H,-z],[x,H,z],[-x,H,z],[-x,H,-z]]);
+    setLine(this.emptyLevel,[[-.244,snapshot.emptyWaterLevelM,.182],[.211,snapshot.emptyWaterLevelM,.182]]);
     this.levelMarker.position.y=H;this.hydroSurfacePatch.position.y=H;this.frontWall.visible=!this.view.cutaway;this.cutEdges.visible=this.view.cutaway;
     const held=snapshot.poseKind==='held';this.parts.get('holding-link').visible=held;setLine(this.holdingLink,[[...G.holdingAnchorM],[0,snapshot.bodyTopM,0]]);this.linkContact.position.set(0,snapshot.bodyTopM,0);
     this.setForce('force-buoyancy',snapshot.buoyancyN,[-G.forceColumnXM,snapshot.centerOfBuoyancyM??snapshot.bodyCenterM,.061],[0,snapshot.centerOfBuoyancyM??snapshot.bodyCenterM,.051]);
@@ -240,9 +287,9 @@ export class BuoyancyScene {
     this.setForce('force-holder',snapshot.holdingForceYN,[.138,snapshot.bodyTopM,.061],[0,snapshot.bodyTopM,.051]);
     for(const [id,arrows] of this.pressureArrows){
       const bottom=id==='pressure-bottom',pressure=bottom?snapshot.bottomGaugePressurePa:snapshot.topGaugePressurePa;
-      const length=pressure*.000015,direction=bottom?1:-1,y=bottom?snapshot.bodyBottomM:snapshot.bodyTopM;
+      const length=pressure*pressureWorldPerPa,direction=bottom?1:-1,y=bottom?snapshot.bodyBottomM:snapshot.bodyTopM;
       this.parts.get(id).visible=this.view.pressures;
-      for(const arrow of arrows){arrow.visible=length>1e-10;arrow.setDirection(V(0,direction,0));arrow.setColor(pressureColor(pressure));setExactArrowLength(arrow,length,Math.min(.007,length*.32),Math.min(.004,length*.2));arrow.position.set(arrow.userData.localX,y-direction*length,.053);}
+      for(const arrow of arrows){arrow.visible=length>1e-10;arrow.setDirection(V(0,direction,0));arrow.setColor(pressureColor(pressure));this.sizeArrow(arrow,length,Math.min(.007,length*.32),Math.min(.004,length*.2));arrow.position.set(arrow.userData.localX,y-direction*length,.053);}
     }
     snapshot.pressureSamples.forEach((sample,i)=>{const dot=this.pressureDots[i];dot.position.set(.053,sample.heightM,.052);dot.material.color.copy(pressureColor(sample.gaugePressurePa));dot.userData.pressurePa=sample.gaugePressurePa;});
     const notes={equilibrium:'자유부유 평형 · 부력과 무게가 같음',held:'높이 고정 · 강체 기호가 당김과 누름을 전달', 'neutral-reference':'중성부력 · 여러 잠긴 높이가 평형 · 현재 그림은 기준 위치', 'submerged-reference':'자유부유 평형 없음 · 완전잠김 기준 위치 · 침강 시간은 계산하지 않음'};
@@ -253,6 +300,9 @@ export class BuoyancyScene {
     this.forceZeroNote.textContent=[...zero.map(([id,force])=>forceText(id,force)),...(!held?['고정력 사용하지 않음']:[])].join(' · ');
     this.forceZeroNote.hidden=!this.view.forces||!this.forceZeroNote.textContent;
     for(const [id,force]of forces)this.labels.get(id).button.textContent=forceText(id,force);
+    const submerged=`${(snapshot.submergedFraction*100).toFixed(1)}%`;
+    this.labels.get('free-surface').button.textContent=`수면 ${(H*100).toFixed(2)} cm · ${submerged} 잠김`;
+    this.labels.get('submerged-volume').button.textContent=`잠긴 부분 ${submerged}`;
     this.forceLegend.hidden=!this.view.forces;this.pressureLegend.hidden=!this.view.pressures;
     this.applyInspectionVisibility();this.scene.updateMatrixWorld(true);this.updateSelection();
     // OrbitControls has no damping or autorotation. Calling update here would
@@ -263,7 +313,7 @@ export class BuoyancyScene {
     const group=this.parts.get(id),arrow=this.forceArrows.get(id),leader=this.forceLeaders.get(id),length=Math.abs(force)*G.forceWorldPerN;
     group.visible=this.view.forces&&(id!=='force-holder'||this.snapshot.poseKind==='held');arrow.visible=length>1e-10;leader.visible=arrow.visible;
     const headLength=Math.min(.007,length*.38);
-    arrow.position.set(...position);arrow.setDirection(V(0,force>=0?1:-1,0));setExactArrowLength(arrow,length,headLength,Math.min(.004,length*.23));
+    arrow.position.set(...position);arrow.setDirection(V(0,force>=0?1:-1,0));this.sizeArrow(arrow,length,headLength,Math.min(.004,length*.23));
     // ArrowHelper itself gives the shaft a 0.1 mm minimum. Remove that visual
     // floor for tiny forces so neither shaft nor tip invents a minimum force.
     setLine(leader,[application,position]);arrow.userData.signedForceN=force;arrow.userData.applicationM=[...application];
@@ -281,6 +331,8 @@ export class BuoyancyScene {
       part.visible=this.forceArrows.has(id)?this.view.forces&&(id!=='force-holder'||this.snapshot.poseKind==='held'):id.startsWith('pressure-')?this.view.pressures:id==='holding-link'?this.snapshot.poseKind==='held':true;
     }
     const kind=this.inspection?.kind;
+    this.pressureLegend.classList.toggle('is-inspection',kind==='hydrostatic');
+    if(kind==='hydrostatic')this.pressureLegend.style.bottom='';
     this.ground.visible=!kind;this.sleeveFront.visible=this.sleevePocket.visible=kind!=='mechanism';
     this.sleeveFrontSection.visible=this.sleevePocketSection.visible=kind==='mechanism';
     this.hydroSurfacePatch.visible=kind==='hydrostatic';this.waterline.visible=kind!=='hydrostatic';
@@ -297,7 +349,7 @@ export class BuoyancyScene {
     this.inspection={id,kind:definition.kind,original};this.focusContext=null;this.applyInspectionVisibility();
     const s=this.snapshot,bounds=definition.kind==='mechanism'
       ?id==='holding-link'?new THREE.Box3(V(-.050,.535,-.055),V(.050,.605,.050)):new THREE.Box3(V(-.056,.569,-.253),V(.056,.640,-.147))
-      :new THREE.Box3(V(-.102,Math.max(0,s.bodyBottomM-s.bottomGaugePressurePa*.000015-.012),-.105),V(.102,Math.max(s.waterLevelM+.02,s.bodyTopM+s.topGaugePressurePa*.000015+.012),.105));
+      :new THREE.Box3(V(-.102,s.bodyBottomM-s.bottomGaugePressurePa*pressureWorldPerPa-.012,-.105),V(.102,Math.max(s.waterLevelM+.02,s.bodyTopM+s.topGaugePressurePa*pressureWorldPerPa+.012),.105));
     const direction=definition.kind==='mechanism'?(id==='holding-link'?[.60,.85,1]:[1,.24,.32]):[.45,.30,1];
     this.camera.zoom=1;this.camera.updateProjectionMatrix();this.updateSelection();this.fit(bounds,direction,1.36);return true;
   }
@@ -313,10 +365,10 @@ export class BuoyancyScene {
   pick(event) {
     const bounds=this.renderer.domElement.getBoundingClientRect();if(!bounds.width||!bounds.height)return;
     this.raycaster.setFromCamera(new THREE.Vector2(2*(event.clientX-bounds.left)/bounds.width-1,1-2*(event.clientY-bounds.top)/bounds.height),this.camera);
-    const hits=this.raycaster.intersectObjects([...this.parts.values()],true).filter(hit=>objectVisible(hit.object));
+    const hits=this.raycaster.intersectObjects([...this.parts.values()],true).filter(hit=>objectVisible(hit.object)&&!hit.object.userData.ignorePick);
     // Clear glass is deliberately click-through; the apparatus still has its
     // own entry in the accessible part list and its metal edges are selectable.
-    const useful=hits.find(hit=>hit.object.material?.transparent!==true)??hits[0];if(!useful)return;
+    const useful=hits.find(hit=>hit.object.userData.pickOpaque||hit.object.material?.transparent!==true)??hits[0];if(!useful)return;
     for(let object=useful.object;object;object=object.parent)if(object.userData.partId){this.onSelect(object.userData.partId);break;}
   }
   anchorFor(id) {
@@ -337,9 +389,12 @@ export class BuoyancyScene {
   }
   layoutLabels() {
     const width=this.width,height=this.height;if(!width||!height)return;
-    const active=this.view.labels?this.labelIds():[],occupied=[],top=this.inspection?12:Math.max(70,this.poseNote.offsetTop+this.poseNote.offsetHeight+13);
+    const hydrostatic=this.inspection?.kind==='hydrostatic';
+    const active=this.view.labels?this.labelIds():[],occupied=[];
+    const top=hydrostatic?this.pressureLegend.offsetHeight+20:this.inspection?12:Math.max(70,this.poseNote.offsetTop+this.poseNote.offsetHeight+13);
     let footerBottom=31;
-    for(const element of [this.forceLegend,this.forceZeroNote,this.pressureLegend])if(!element.hidden){element.style.bottom=`${footerBottom}px`;footerBottom+=element.offsetHeight+5;}
+    const footnotes=hydrostatic?[this.forceLegend,this.forceZeroNote]:[this.forceLegend,this.forceZeroNote,this.pressureLegend];
+    for(const element of footnotes)if(!element.hidden){element.style.bottom=`${footerBottom}px`;footerBottom+=element.offsetHeight+5;}
     const bottom=height-footerBottom-6;
     this.svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
     for(const item of this.labels.values()){item.button.hidden=true;item.leader.style.display='none';item.dot.style.display='none';item.anchor=null;}
@@ -421,7 +476,7 @@ export class BuoyancyScene {
       zeroForceText:this.forceZeroNote.hidden?'':this.forceZeroNote.textContent,
       pressureDots:this.pressureDots.map(d=>({positionM:array(d.getWorldPosition(V())),color:`#${d.material.color.getHexString()}`,visible:objectVisible(d)})),
       pressureArrows:[...this.pressureArrows].map(([id,arrows])=>({id,arrows:arrows.map(a=>({visible:objectVisible(a),startM:array(a.getWorldPosition(V())),endM:array(actualArrowTip(a)),shaftEndM:array(a.line.localToWorld(V(0,1,0)))}))})),
-      localSurfacePatch:{visible:objectVisible(this.hydroSurfacePatch),heightM:this.hydroSurfacePatch.position.y,boundsM:actualBounds(this.hydroSurfacePatch),hasBodyOpening:this.snapshot?.immersion==='partial'},
+      localSurfacePatch:{visible:objectVisible(this.hydroSurfacePatch),heightM:this.hydroSurfacePatch.position.y,boundsM:actualBounds(this.hydroSurfacePatch),hasBodyOpening:this.waterMaterial.uniforms.cutsSurface.value},
       poseLabel:this.poseNote.textContent,labels:[...this.labels].filter(([,v])=>!v.button.hidden).map(([id,v])=>({id,text:v.button.textContent,anchor:v.anchor,x:parseFloat(v.button.style.left),y:parseFloat(v.button.style.top),width:v.button.offsetWidth,height:v.button.offsetHeight})),
     };
   }

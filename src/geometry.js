@@ -2,7 +2,7 @@ import { CONSTANTS_SI as C } from './model.js';
 
 export const COMPONENTS = Object.freeze([
   ['tank-shell','유리 수조','벽과 바닥이 액체를 담습니다. 앞벽 절개는 관찰용 표시이며 액체의 양을 바꾸지 않습니다.'],
-  ['fluid-volume','일정 체적의 액체','액체 38.5 L는 일정합니다. 물체가 밀어낸 부피만큼 자유수면이 올라갑니다.'],
+  ['fluid-volume','일정 체적의 액체','설정한 액체량은 물체의 위치를 바꿔도 일정합니다. 물체가 밀어낸 부피만큼 자유수면이 올라갑니다.'],
   ['test-body','시험 물체','가로와 깊이는 각각 10 cm입니다. 체적을 바꾸면 실제 높이가 변하고, 평균 밀도는 질량을 체적으로 나눈 값입니다.'],
   ['submerged-volume','잠긴 부분','물체 중 현재 수면 아래에 있는 부분입니다. 이 체적이 배제한 액체의 체적과 같습니다.'],
   ['free-surface','현재 수면','작은 유한 수조의 실제 수면입니다. 액체가 없는 가상의 무한 수조처럼 높이를 고정하지 않습니다.'],
@@ -10,11 +10,11 @@ export const COMPONENTS = Object.freeze([
   ['holding-carriage','높이 설정 장치','높이 고정 모드에서 필요한 당김 또는 누름을 받는 장치입니다. 위치 조절은 조건 카드에서 합니다.'],
   ['holding-link','이상적 강체 연결','곧은 점선은 무체적 강체 구속의 기호입니다. 위로 당기거나 아래로 누를 수 있으며 실제 굵기의 잠수봉이나 로프가 아닙니다.'],
   ['force-buoyancy','부력','물체의 잠긴 체적이 배제한 액체의 무게만큼 위로 작용합니다. 표면 압력의 합력입니다.'],
-  ['force-weight','무게','물체 질량과 고정 중력가속도의 곱이며 아래로 작용합니다. 질량 kg과 힘 N을 구분합니다.'],
+  ['force-weight','무게','물체 질량과 설정한 중력가속도의 곱이며 아래로 작용합니다. 질량 kg과 힘 N을 구분합니다.'],
   ['force-holder','고정장치 힘','높이 고정 모드에서만 작용합니다. 양수는 위로 당김, 음수는 아래로 누름이며 로프의 음수 장력이 아닙니다.'],
   ['pressure-bottom','밑면 압력','대기압을 뺀 밑면의 압력입니다. 액체 깊이가 깊을수록 커지고 밑면에는 위쪽 힘을 만듭니다.'],
   ['pressure-top','윗면 압력','액체에 잠긴 윗면의 압력은 아래쪽 힘을 만듭니다. 공기 중인 윗면의 게이지 압력은 0 Pa입니다.'],
-  ['level-scale','높이 눈금','수조 바닥이 0 cm입니다. 점선 기준은 물체가 없을 때의 22 cm 수면이며 현재 수면과 구분합니다.'],
+  ['level-scale','높이 눈금','수조 바닥이 0 cm입니다. 점선 기준은 같은 액체량에서 물체가 없을 때의 수면이며 현재 수면과 구분합니다.'],
 ].map(([id,label,description])=>Object.freeze({id,label,name:label,description})));
 
 export const DEFAULT_VIEW = Object.freeze({cutaway:true,forces:true,pressures:false,labels:true,selectedPart:'test-body'});

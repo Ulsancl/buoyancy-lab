@@ -27,21 +27,27 @@ export const CONFIG_LIMITS_SI = Object.freeze({
   bodyVolumeM3: Object.freeze({ min: 0.0005, max: 0.002 }),
   fluidDensityKgM3: Object.freeze({ min: 800, max: 1200 }),
   heldBottomM: Object.freeze({ min: 0.015, max: 0.28 }),
+  // At 36 L even the largest fully immersed body clears the floor. At
+  // 53 L the lightest, tallest floating body still clears the 50 cm rim.
+  fluidVolumeM3: Object.freeze({ min: 0.036, max: 0.053 }),
+  gravityMps2: Object.freeze({ min: 1, max: 10 }),
 });
 
 const CONFIG_KEYS = Object.keys(DEFAULT_CONFIG);
-const { gravityMps2: G, tankAreaM2: AT, bodyAreaM2: AB,
-  fluidVolumeM3: VF, emptyWaterLevelM: H0, minBottomM: MIN_BOTTOM } = CONSTANTS_SI;
+// Optional overrides allow old projects and pinned comparisons to use the
+// original conditions with their stored config structure intact.
+const CONDITION_OVERRIDES = ['fluidVolumeM3', 'gravityMps2'];
+const { tankAreaM2: AT, bodyAreaM2: AB, minBottomM: MIN_BOTTOM } = CONSTANTS_SI;
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 }
 
-function exactRecord(value, keys, name) {
+function exactRecord(value, keys, name, optionalKeys = []) {
   if (!isPlainObject(value)) throw new TypeError(`${name} must be a plain object`);
   const actual = Reflect.ownKeys(value);
-  if (actual.length !== keys.length || actual.some(key => !keys.includes(key))
+  if (actual.some(key => !keys.includes(key) && !optionalKeys.includes(key))
       || keys.some(key => !Object.hasOwn(value, key))) {
     throw new TypeError(`${name} has unexpected or missing fields`);
   }
@@ -56,8 +62,10 @@ function bounded(value, min, max, name) {
 }
 
 export function assertConfig(value) {
-  exactRecord(value, CONFIG_KEYS, 'config');
-  for (const [key, { min, max }] of Object.entries(CONFIG_LIMITS_SI)) bounded(value[key], min, max, key);
+  exactRecord(value, CONFIG_KEYS, 'config', CONDITION_OVERRIDES);
+  for (const [key, { min, max }] of Object.entries(CONFIG_LIMITS_SI)) {
+    if (Object.hasOwn(value, key)) bounded(value[key], min, max, key);
+  }
   if (value.mode !== 'equilibrium' && value.mode !== 'held') throw new TypeError('Unsupported mode');
   return value;
 }
@@ -84,7 +92,7 @@ export function assertExperiment(value) {
   return value;
 }
 
-function heldImmersion(y, height, volume, fullWaterLevel) {
+function heldImmersion(y, height, volume, fullWaterLevel, VF, H0) {
   if (y >= H0) return { waterLevelM: H0, submergedHeightM: 0, displacedVolumeM3: 0, immersion: 'dry' };
   if (y + height <= fullWaterLevel) {
     return { waterLevelM: fullWaterLevel, submergedHeightM: height, displacedVolumeM3: volume, immersion: 'full' };
@@ -102,7 +110,7 @@ function heldImmersion(y, height, volume, fullWaterLevel) {
     displacedVolumeM3: immersion === 'full' ? volume : AB * submergedHeightM, immersion };
 }
 
-function pressureAt(rho, waterLevel, height) {
+function pressureAt(rho, G, waterLevel, height) {
   return rho * G * Math.max(waterLevel - height, 0);
 }
 
@@ -110,6 +118,8 @@ export function getSnapshot(experiment) {
   assertExperiment(experiment);
   const config = { ...experiment.config };
   const { bodyMassKg: mass, bodyVolumeM3: volume, fluidDensityKgM3: rho, mode } = config;
+  const { gravityMps2: G = CONSTANTS_SI.gravityMps2, fluidVolumeM3: VF = CONSTANTS_SI.fluidVolumeM3 } = config;
+  const H0 = VF / AT;
   const bodyHeightM = volume / AB;
   const fullWaterLevel = (VF + volume) / AT;
   const fullMass = rho * volume;
@@ -129,14 +139,14 @@ export function getSnapshot(experiment) {
   const water = mode === 'equilibrium' && freeEquilibrium === 'unique'
     ? { waterLevelM: floatingWaterLevel, submergedHeightM: floatingVolume / AB,
       displacedVolumeM3: floatingVolume, immersion: 'partial' }
-    : heldImmersion(bodyBottomM, bodyHeightM, volume, fullWaterLevel);
+    : heldImmersion(bodyBottomM, bodyHeightM, volume, fullWaterLevel, VF, H0);
   const { waterLevelM, submergedHeightM, displacedVolumeM3, immersion } = water;
   const bodyTopM = bodyBottomM + bodyHeightM;
   const weightN = mass * G;
   const buoyancyN = rho * G * displacedVolumeM3;
   const holdingForceYN = mode === 'held' ? weightN - buoyancyN : 0;
-  const bottomGaugePressurePa = pressureAt(rho, waterLevelM, bodyBottomM);
-  const topGaugePressurePa = pressureAt(rho, waterLevelM, bodyTopM);
+  const bottomGaugePressurePa = pressureAt(rho, G, waterLevelM, bodyBottomM);
+  const topGaugePressurePa = pressureAt(rho, G, waterLevelM, bodyTopM);
   return {
     config,
     bodyDensityKgM3: mass / volume,
@@ -152,6 +162,7 @@ export function getSnapshot(experiment) {
     waterLevelM,
     emptyWaterLevelM: H0,
     fluidVolumeM3: VF,
+    gravityMps2: G,
     displacedVolumeM3,
     submergedHeightM,
     submergedFraction: displacedVolumeM3 / volume,
@@ -167,7 +178,7 @@ export function getSnapshot(experiment) {
     topPressureForceYN: topGaugePressurePa === 0 ? 0 : -AB * topGaugePressurePa,
     pressureSamples: Array.from({ length: 9 }, (_, index) => {
       const heightM = index === 8 ? bodyTopM : bodyBottomM + bodyHeightM * index / 8;
-      return { heightM, gaugePressurePa: pressureAt(rho, waterLevelM, heightM) };
+      return { heightM, gaugePressurePa: pressureAt(rho, G, waterLevelM, heightM) };
     }),
     bottomContact: false,
     fluidVolumeResidualM3: AT * waterLevelM - displacedVolumeM3 - VF,
@@ -177,5 +188,5 @@ export function getSnapshot(experiment) {
 export function samplePressurePa(experiment, heightM) {
   bounded(heightM, 0, CONSTANTS_SI.tankHeightM, 'heightM');
   const snapshot = getSnapshot(experiment);
-  return pressureAt(snapshot.config.fluidDensityKgM3, snapshot.waterLevelM, heightM);
+  return pressureAt(snapshot.config.fluidDensityKgM3, snapshot.gravityMps2, snapshot.waterLevelM, heightM);
 }
