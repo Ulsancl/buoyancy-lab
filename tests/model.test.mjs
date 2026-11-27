@@ -13,7 +13,7 @@ const near = (actual, expected, tolerance = 1e-12) => {
 const SNAPSHOT_KEYS = [
   'config', 'bodyDensityKgM3', 'freeEquilibrium', 'immersion', 'poseKind', 'equilibriumBottomM',
   'neutralBottomRangeM', 'bodyBottomM', 'bodyTopM', 'bodyHeightM', 'bodyCenterM',
-  'waterLevelM', 'emptyWaterLevelM', 'fluidVolumeM3', 'displacedVolumeM3', 'submergedHeightM',
+  'waterLevelM', 'emptyWaterLevelM', 'fluidVolumeM3', 'gravityMps2', 'displacedVolumeM3', 'submergedHeightM',
   'submergedFraction', 'centerOfBuoyancyM', 'weightN', 'buoyancyN', 'holdingForceYN',
   'unrestrainedForceYN', 'netForceYN', 'bottomGaugePressurePa', 'topGaugePressurePa',
   'bottomPressureForceYN', 'topPressureForceYN', 'pressureSamples', 'bottomContact', 'fluidVolumeResidualM3',
@@ -102,7 +102,9 @@ test('strict config rejects missing/unknown fields, nonnumbers, nonfinite values
     for (const bad of [limit.min - Math.abs(limit.min) * 1e-10, limit.max + Math.abs(limit.max) * 1e-10]) {
       assert.throws(() => assertConfig({ ...DEFAULT_CONFIG, [key]: bad }), RangeError, key);
     }
-    const missing = { ...DEFAULT_CONFIG }; delete missing[key]; assert.throws(() => assertConfig(missing), TypeError);
+    if (Object.hasOwn(DEFAULT_CONFIG, key)) {
+      const missing = { ...DEFAULT_CONFIG }; delete missing[key]; assert.throws(() => assertConfig(missing), TypeError);
+    }
   }
   for (const bad of [null, [], new Date(), 'config', { ...DEFAULT_CONFIG, running: false },
     { ...DEFAULT_CONFIG, mode: 'free' }, { ...DEFAULT_CONFIG, [Symbol('extra')]: 1 }]) assert.throws(() => assertConfig(bad), TypeError);

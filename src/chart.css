@@ -1,0 +1,99 @@
+.condition-charts {
+  container-type: inline-size;
+}
+
+.condition-summary {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.condition-summary caption {
+  text-align: left;
+  padding-bottom: 8px;
+  font-weight: 700;
+}
+
+.condition-summary th,
+.condition-summary td {
+  padding: 8px 7px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.condition-summary thead th {
+  background: #f0f5ee;
+  color: #435e56;
+  font-size: 11px;
+}
+
+.condition-summary th:first-child,
+.condition-summary th:nth-last-child(-n + 2):not(:first-child),
+.condition-summary td:nth-last-child(-n + 2) {
+  white-space: nowrap;
+}
+
+.condition-summary th:nth-last-child(-n + 2):not(:first-child),
+.condition-summary td:nth-last-child(-n + 2) {
+  text-align: right;
+}
+
+.condition-summary tbody tr[data-kind="current"] th {
+  color: #176d65;
+}
+
+.condition-summary tbody tr[data-kind="saved"] th {
+  color: #994d24;
+}
+
+.condition-plots {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.condition-plot {
+  min-width: 0;
+  margin: 0;
+  padding: 13px 9px 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafcf7;
+}
+
+.condition-plot h3 {
+  margin: 0 5px 4px;
+  font-size: 13px;
+}
+
+.condition-plot p {
+  min-height: 2.7em;
+  margin: 0 5px 2px;
+  color: #435e56;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.condition-plot svg text {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.condition-plot .condition-value {
+  font-weight: 650;
+}
+
+.condition-empty {
+  padding: 12px;
+  border-radius: 9px;
+  background: #f0f5ee;
+  font-size: 12px;
+}
+
+@container (min-width: 550px) {
+  .condition-plots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

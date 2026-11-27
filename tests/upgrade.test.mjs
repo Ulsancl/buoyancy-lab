@@ -142,6 +142,9 @@ function sameSnapshot(actual, expected, label = 'snapshot') {
     assert.ok(Number.isFinite(actual) && Math.abs(actual - expected) <= 1e-10 * Math.max(1, Math.abs(expected)), label + ' differs'); return;
   }
   if (expected === null || typeof expected !== 'object') { assert.equal(actual, expected, label); return; }
+  if (!preparing && label === 'snapshot' && !Object.hasOwn(expected, 'gravityMps2')) {
+    expected = { ...expected, gravityMps2: 9.80665 };
+  }
   assert.deepEqual(Object.keys(actual).sort(), Object.keys(expected).sort(), label + ' shape');
   for (const key of Object.keys(expected)) {
     if (key === 'config') assert.deepEqual(actual[key], expected[key]);

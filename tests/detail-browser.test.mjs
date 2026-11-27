@@ -108,7 +108,7 @@ async function panelParity() {
     for (const key of Object.keys(sum)) sum[key] += face.forceN[key];
   }
   near(sum.x, 0); near(sum.z, 0); near(sum.y, s.buoyancyN);
-  near(d.fluid.massKg, s.config.fluidDensityKgM3 * VF); near(d.fluid.bottomFluidLoadN, d.fluid.weightN + s.buoyancyN);
+  near(d.fluid.massKg, s.config.fluidDensityKgM3 * s.fluidVolumeM3); near(d.fluid.bottomFluidLoadN, d.fluid.weightN + s.buoyancyN);
   near(d.balance.buoyancyResidualN, 0); near(d.balance.volumeResidualM3, 0); near(d.balance.tankLoadResidualN, 0);
   const lower = Math.max(0, Math.min(s.bodyBottomM, s.waterLevelM) - .018), upper = Math.min(.5, Math.max(s.bodyTopM, s.waterLevelM) + .018);
   const y = height => 267 - (height - lower) / (upper - lower) * 237;
@@ -117,7 +117,7 @@ async function panelParity() {
     assert.equal(await marker.isVisible(), value !== null); if (value !== null) near(Number(await marker.getAttribute('cy')), y(value));
   }
   near(Number(await page.locator('#profile-surface').getAttribute('y1')), y(s.waterLevelM));
-  for (const sample of JSON.parse(await page.locator('#profile-pressure').getAttribute('data-samples'))) near(sample.gaugePressurePa, s.config.fluidDensityKgM3 * G * Math.max(s.waterLevelM - sample.heightM, 0));
+  for (const sample of JSON.parse(await page.locator('#profile-pressure').getAttribute('data-samples'))) near(sample.gaugePressurePa, s.config.fluidDensityKgM3 * s.gravityMps2 * Math.max(s.waterLevelM - sample.heightM, 0));
   assert.doesNotMatch(await page.locator('#profile-pressure').getAttribute('d'), /NaN|Infinity/);
 }
 async function factParity(partId, selector = '#part-facts') {
@@ -277,8 +277,17 @@ try {
       assert.deepEqual(current.experiment, before.experiment); assert.deepEqual(current.comparison, before.comparison);
       sameCamera(current.observation.camera, before.observation.camera); assert.equal(await inspection(), null);
     }
-    await selectPart('fluid-volume'); assert.match(await page.locator('#part-detail-note').textContent(), /38.5 L/);
+    await selectPart('fluid-volume');
+    const volumeFact = page.locator('#part-facts > div').filter({ has: page.getByText('실제 액체 체적', { exact: true }) }).locator('dd');
+    assert.equal(await volumeFact.textContent(), '38.5 L');
+    near(Number(await volumeFact.getAttribute('data-raw')), (await state()).snapshot.fluidVolumeM3 * 1000);
+    assert.match(await page.locator('#part-detail-note').textContent(), /초기 액체량.*잠김과 무관하게 유지/);
     await change('density', 850); await factParity('fluid-volume'); near((await detail()).fluid.massKg, 850 * VF);
+    await change('fill', 52); await change('gravity', 1.62);
+    assert.equal(await volumeFact.textContent(), '52.0 L');
+    near(Number(await volumeFact.getAttribute('data-raw')), (await state()).snapshot.fluidVolumeM3 * 1000);
+    near((await detail()).fluid.weightN, 850 * .052 * 1.62);
+    await factParity('fluid-volume'); await panelParity();
     assert.deepEqual((await state()).comparison, before.comparison);
   });
 
