@@ -24,8 +24,8 @@
 }
 
 .condition-summary thead th {
-  background: #f0f5ee;
-  color: #435e56;
+  background: var(--panel);
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -41,11 +41,11 @@
 }
 
 .condition-summary tbody tr[data-kind="current"] th {
-  color: #176d65;
+  color: var(--accent);
 }
 
 .condition-summary tbody tr[data-kind="saved"] th {
-  color: #994d24;
+  color: var(--orange);
 }
 
 .condition-plots {
@@ -60,7 +60,7 @@
   padding: 13px 9px 2px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fafcf7;
+  background: var(--surface);
 }
 
 .condition-plot h3 {
@@ -71,7 +71,7 @@
 .condition-plot p {
   min-height: 2.7em;
   margin: 0 5px 2px;
-  color: #435e56;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -88,7 +88,7 @@
 .condition-empty {
   padding: 12px;
   border-radius: 9px;
-  background: #f0f5ee;
+  background: var(--panel);
   font-size: 12px;
 }
 

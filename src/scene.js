@@ -37,10 +37,10 @@ function line(points,color,width=1,dashed=false) {
   const mesh=new THREE.Line(geometry,material); if(dashed)mesh.computeLineDistances(); return mesh;
 }
 function setLine(mesh,points) { if(updateLinePoints(mesh,points))return;mesh.geometry.dispose();mesh.geometry=new THREE.BufferGeometry().setFromPoints(points.map(p=>V(...p)));if(mesh.computeLineDistances)mesh.computeLineDistances(); }
-function plateTexture(text,{color='#255c60',background='#e9efe6',size=128}={}) {
+function plateTexture(text,{fontFamily,color='#255c60',background='#e9efe6',size=128}) {
   const canvas=document.createElement('canvas');canvas.width=size*3;canvas.height=size;
   const context=canvas.getContext('2d');context.fillStyle=background;context.fillRect(0,0,canvas.width,canvas.height);
-  context.fillStyle=color;context.font=`600 ${size*.38}px "Segoe UI", sans-serif`;context.textAlign='center';context.textBaseline='middle';context.fillText(text,canvas.width/2,canvas.height/2);
+  context.fillStyle=color;context.font=`600 ${size*.38}px ${fontFamily}`;context.textAlign='center';context.textBaseline='middle';context.fillText(text,canvas.width/2,canvas.height/2);
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
 function actualBounds(mesh) { const b=new THREE.Box3().setFromObject(mesh);return {min:array(b.min),max:array(b.max)}; }
@@ -68,13 +68,16 @@ export class BuoyancyScene {
   constructor(container,{onSelect=()=>{},onCameraChange=()=>{}}={}) {
     this.container=container;this.onSelect=onSelect;this.onCameraChange=onCameraChange;
     this.view={...DEFAULT_VIEW};this.snapshot=null;this.disposed=false;this.suppressCamera=false;this.focusContext=null;this.materials=[];this.labels=new Map();this.inspection=null;this.shapeKey=null;
-    this.scene=new THREE.Scene();this.scene.background=new THREE.Color(0xe7ede8);
+    this.scene=new THREE.Scene();this.scene.background=new THREE.Color();
+    this.fontFamily=getComputedStyle(container).fontFamily;
     this.camera=new THREE.PerspectiveCamera(37,1,.003,160);this.camera.position.set(.85,.70,.96);this.camera.up.set(0,1,0);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));this.renderer.outputColorSpace=THREE.SRGBColorSpace;
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.08;
     this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-    this.renderer.domElement.className='buoyancy-canvas';this.renderer.domElement.setAttribute('aria-label','부력 실험대 3D 관찰. 드래그하여 회전, 휠로 확대할 수 있습니다.');
+    this.renderer.domElement.className='buoyancy-canvas';
+    this.renderer.domElement.setAttribute('role','img');
+    this.renderer.domElement.setAttribute('aria-label','부력 실험대 3차원 관찰 화면');
     container.classList.add('buoyancy-scene');container.appendChild(this.renderer.domElement);
     const pmrem=new THREE.PMREMGenerator(this.renderer),room=new RoomEnvironment();
     this.environment=pmrem.fromScene(room,.035);this.scene.environment=this.environment.texture;room.dispose();pmrem.dispose();
@@ -105,7 +108,14 @@ export class BuoyancyScene {
     this.pointerUp=event=>{const start=this.pointerStart;this.pointerStart=null;if(!start||start.pointerId!==event.pointerId||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;this.pick(event);};
     this.pointerCancel=()=>{this.pointerStart=null;};
     this.renderer.domElement.addEventListener('pointerdown',this.pointerDown);this.renderer.domElement.addEventListener('pointerup',this.pointerUp);this.renderer.domElement.addEventListener('pointercancel',this.pointerCancel);
+    this.applyPalette();
     this.resizeObserver=new ResizeObserver(()=>this.resize());this.resizeObserver.observe(container);this.resize();
+  }
+  applyPalette() {
+    const style = getComputedStyle(this.container);
+    this.scene.background.set(style.getPropertyValue('--scene-bg').trim());
+    this.ground.material.color.set(style.getPropertyValue('--scene-ground').trim());
+    if (this.width) this.render();
   }
   material(options) { const m=new THREE.MeshStandardMaterial(options);this.materials.push(m);return m; }
   mesh(part,geometry,material,position=[0,0,0],cast=true) {
@@ -159,7 +169,7 @@ export class BuoyancyScene {
     }
     this.cutEdges=new THREE.Group();this.parts.get('tank-shell').add(this.cutEdges);
     for(const x of [-X,X])this.cutEdges.add(line([[x,0,Z],[x,H,Z]],0x4d9690));
-    const nameMaterial=this.material({map:plateTexture('부력 실험 수조',{color:'#dbe7e0',background:'#324b4b'}),roughness:.48,metalness:.21});
+    const nameMaterial=this.material({map:plateTexture('부력 실험 수조',{fontFamily:this.fontFamily,color:'#dbe7e0',background:'#324b4b'}),roughness:.48,metalness:.21});
     this.mesh('tank-shell',new THREE.PlaneGeometry(.13,.018),nameMaterial,[0,(apparatus.base.min[1]+apparatus.base.max[1])/2,.2352],false);
     for(const x of [-G.framePostXM,G.framePostXM]){
       this.cuboid('holding-frame',[.025,.025,.067],[x,apparatus.framePadBottomM+.0125,G.frameBackZM],dark);
@@ -205,7 +215,7 @@ export class BuoyancyScene {
     this.hydroSurfacePatch=this.mesh('free-surface',new THREE.PlaneGeometry(.18,.18),new THREE.MeshBasicMaterial({color:0x74c9c2,transparent:true,opacity:.22,side:THREE.DoubleSide,depthWrite:false}),[0,.22,0],false);this.hydroSurfacePatch.visible=false;
     const rulerHeight=H+.034,rulerCenter=rulerHeight/2-.010;
     this.mesh('level-scale',new RoundedBoxGeometry(.034,rulerHeight,.004,2,.001),brushed,[.229,rulerCenter,.184],false);
-    const rulerFace=new THREE.MeshBasicMaterial({map:rulerTexture(Math.round(H*100)),toneMapped:false});this.materials.push(rulerFace);
+    const rulerFace=new THREE.MeshBasicMaterial({map:rulerTexture(Math.round(H*100),this.fontFamily),toneMapped:false});this.materials.push(rulerFace);
     this.mesh('level-scale',new THREE.PlaneGeometry(.032,rulerHeight),rulerFace,[.229,rulerCenter,.1862],false);
     this.emptyLevel=line([[-.244,0,.182],[.211,0,.182]],0x637e7d,1,true);this.emptyLevel.material.opacity=.56;this.emptyLevel.material.depthWrite=false;this.emptyLevel.renderOrder=7;this.parts.get('level-scale').add(this.emptyLevel);
     const markerMaterial=new THREE.MeshBasicMaterial({color:teal});this.materials.push(markerMaterial);
@@ -258,6 +268,7 @@ export class BuoyancyScene {
       if(Object.hasOwn(forceNames,p.id))button.classList.add('buoyancy-force-label');
       if(['free-surface','submerged-volume'].includes(p.id))button.classList.add('buoyancy-water-label');
       const leader=document.createElementNS('http://www.w3.org/2000/svg','path');const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('r','2.7');
+      leader.dataset.part=p.id;dot.dataset.part=p.id;
       this.labelLayer.appendChild(button);this.svg.append(leader,dot);this.labels.set(p.id,{button,leader,dot,anchor:null});
     }
   }
@@ -414,7 +425,6 @@ export class BuoyancyScene {
       occupied.push(chosen);item.button.style.left=`${chosen.x}px`;item.button.style.top=`${chosen.y}px`;
       const tx=Math.max(chosen.x,Math.min(chosen.x+chosen.w,ax)),ty=Math.max(chosen.y,Math.min(chosen.y+chosen.h,ay));
       item.leader.setAttribute('d',`M ${ax} ${ay} L ${tx} ${ty}`);item.leader.style.display='';item.dot.setAttribute('cx',ax);item.dot.setAttribute('cy',ay);item.dot.style.display='';item.anchor={worldM:array(world),x:ax,y:ay};
-      const arrow=this.forceArrows.get(id);if(arrow){const color=`#${arrow.line.material.color.getHexString()}`;item.leader.style.stroke=color;item.dot.style.fill=color;}
     }
   }
   getCameraState() { return {position:array(this.camera.position),target:array(this.controls.target),zoom:this.camera.zoom}; }

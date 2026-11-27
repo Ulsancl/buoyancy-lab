@@ -19,9 +19,35 @@ function name({config}) {
   return `${fmt(config.bodyMassKg)} kg · ${fmt(config.bodyVolumeM3*1000)} L · ${fmt(config.fluidDensityKgM3,0)} kg/m³ · 액체 ${fmt(fillL,3)} L · g ${fmt(gravity,5)} m/s²`;
 }
 const KEY='buoyancy-lab-project-v1', desktop=window.buoyancyDesktop;
+const THEME_KEY = 'buoyancy-lab-theme';
 let experiment=createExperiment(),view=normalizeView(DEFAULT_VIEW),comparison=null,scene=null,initialCamera=null,snapshot;
 let guide=null,previous=null,busy=false,restoring=false,chartDisplay='both',saveTimer,toastTimer,recoveredRaw=null,storageBlocked=false;
 const chart=new BuoyancyChart($('#force-chart'),$('#immersion-chart'));
+const themeButton = $('#theme-toggle');
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeButton.setAttribute('aria-pressed', String(theme === 'light'));
+  $('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
+  scene?.applyPalette();
+}
+
+let theme = 'dark';
+try {
+  if (localStorage.getItem(THEME_KEY) === 'light') theme = 'light';
+} catch { /* The theme still works in this tab when storage is restricted. */ }
+applyTheme(theme);
+themeButton.addEventListener('click', () => {
+  theme = theme === 'light' ? 'dark' : 'light';
+  applyTheme(theme);
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* Keep the current theme. */ }
+});
+
+const narrowLayout = matchMedia('(max-width: 760px)');
+const partInfo = $('#part-info');
+partInfo.open = !narrowLayout.matches;
+narrowLayout.addEventListener('change', event => { partInfo.open = !event.matches; });
+
 const inspectionParts=new Set(['holding-frame','holding-carriage','holding-link','test-body','submerged-volume','free-surface','pressure-bottom','pressure-top']);
 const detailPanel=new BuoyancyDetailPanel($('#buoyancy-details'),$('#part-facts'),$('#part-detail-note'),{onInspect:beginInspection});
 function selectPart(id){if(busy){syncControls();return;}if(!COMPONENTS.some(part=>part.id===id))throw new RangeError('Unknown buoyancy component');view.selectedPart=id;if(scene?.getInspection?.()){if(inspectionParts.has(id))scene.beginInspection(id);else scene.endInspection();}syncControls();refresh();scheduleSave();}
@@ -222,7 +248,7 @@ function refresh(){
   if(comparison)text('#comparison-summary',`현재 ${name(experiment)} / 보관 ${name(comparison.experiment)} · ${poseSummary(getSnapshot(comparison.experiment))}`);
   for(const b of $$('[data-chart-mode]'))b.setAttribute('aria-pressed',String(b.dataset.chartMode===chartDisplay));drawChart();renderGuide();scene?.update(snapshot,view);
 }
-function startLesson(id){if(busy||!Object.hasOwn(LESSONS,id))return;remember();scene?.endInspection?.();experiment=createExperiment(LESSONS[id].config);guide=createGuide(id);comparison=null;view=normalizeView(DEFAULT_VIEW);chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();scene?.resetCamera();saveLocal();$('#lesson-guide').scrollIntoView({block:'nearest'});}
+function startLesson(id){if(busy||!Object.hasOwn(LESSONS,id))return;remember();scene?.endInspection?.();experiment=createExperiment(LESSONS[id].config);guide=createGuide(id);comparison=null;view=normalizeView(DEFAULT_VIEW);chartDisplay='both';snapshot=getSnapshot(experiment);syncControls();refresh();scene?.resetCamera();saveLocal();const guidePanel=$('#lesson-guide');guidePanel.open=true;guidePanel.scrollIntoView({block:'nearest'});}
 function download(contents,filename,mime='application/json;charset=utf-8'){const url=URL.createObjectURL(new Blob([contents],{type:mime}));Object.assign(document.createElement('a'),{href:url,download:filename}).click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function projectFilename(suffix = '') {
   return `buoyancy-lab-${new Date().toISOString().slice(0,10)}${suffix}.buoyancy.json`;

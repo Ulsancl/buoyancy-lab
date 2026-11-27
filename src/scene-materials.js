@@ -65,6 +65,11 @@ export function waterMaterial({ width, depth, bodyWidth, bodyDepth }) {
     uniform bool cutsSurface;
 
     vec4 opticalSurface(vec3 normal, vec3 eye, float fresnel) {
+      // Initialize the result before the surface branch to avoid ANGLE/D3D11
+      // warning X4000 on the translated function's return value.
+      float depth = clamp((elevation - worldPosition.y) / 0.45, 0.0, 1.0);
+      vec3 sideTint = mix(vec3(0.052, 0.43, 0.44), vec3(0.012, 0.21, 0.29), depth);
+      vec4 surface = vec4(sideTint, (0.055 + 0.12 * depth + 0.09 * fresnel) * (gl_FrontFacing ? 1.0 : 0.46));
       if (abs(worldNormal.y) > 0.5 && abs(worldPosition.y - elevation) < 0.00002) {
         vec2 p = worldPosition.xz;
         // Optical variation only. The visible surface and its cavity stay planar.
@@ -76,11 +81,9 @@ export function waterMaterial({ width, depth, bodyWidth, bodyDepth }) {
         if (cutsSurface) contact = min(contact, length(bodyGap));
         float meniscus = 1.0 - smoothstep(0.0004, 0.0048, contact);
         vec3 tint = mix(vec3(0.032, 0.43, 0.44), vec3(0.76, 0.95, 0.93), panel * 0.86 + meniscus * 0.14);
-        return vec4(tint, 0.20 + 0.19 * fresnel + 0.25 * panel + 0.24 * meniscus);
+        surface = vec4(tint, 0.20 + 0.19 * fresnel + 0.25 * panel + 0.24 * meniscus);
       }
-      float depth = clamp((elevation - worldPosition.y) / 0.45, 0.0, 1.0);
-      vec3 tint = mix(vec3(0.052, 0.43, 0.44), vec3(0.012, 0.21, 0.29), depth);
-      return vec4(tint, (0.055 + 0.12 * depth + 0.09 * fresnel) * (gl_FrontFacing ? 1.0 : 0.46));
+      return surface;
     }
   `, {
     elevation: { value: 0 },
@@ -110,7 +113,7 @@ export function brushedFinishTexture() {
   return new THREE.CanvasTexture(canvas);
 }
 
-export function rulerTexture(maxCm) {
+export function rulerTexture(maxCm, fontFamily) {
   const canvas = document.createElement('canvas');
   canvas.width = 144;
   canvas.height = 2048;
@@ -120,7 +123,7 @@ export function rulerTexture(maxCm) {
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.textAlign = 'right';
   context.textBaseline = 'middle';
-  context.font = '600 38px "Segoe UI", sans-serif';
+  context.font = `600 38px ${fontFamily}`;
   context.fillStyle = '#167477';
   context.fillText('cm', 125, yAt(maxCm + 1.35));
   for (let cm = 0; cm <= maxCm; cm++) {
