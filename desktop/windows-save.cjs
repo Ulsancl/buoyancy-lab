@@ -68,6 +68,11 @@ function windowsPowerShell() {
   return path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
+function windowsPowerShellEnv(extra = {}) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'PSMODULEPATH'));
+  return { ...env, ...extra, PSModulePath: path.join(path.dirname(windowsPowerShell()), 'Modules') };
+}
+
 function windowsWriteProject(target, contents) {
   const command = Buffer.from(saveScript, 'utf16le').toString('base64');
   // Base64 encodes the wire bytes so PowerShell's console encoding cannot
@@ -78,7 +83,7 @@ function windowsWriteProject(target, contents) {
   }).replace(/[^\x00-\x7f]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`);
   return new Promise((resolve, reject) => {
     const child = spawn(windowsPowerShell(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
-      windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'],
+      windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'], env: windowsPowerShellEnv(),
     });
     child.on('error', reject);
     child.stdin.on('error', reject);
@@ -90,4 +95,4 @@ function windowsWriteProject(target, contents) {
   });
 }
 
-module.exports = { windowsPowerShell, windowsWriteProject };
+module.exports = { windowsPowerShell, windowsPowerShellEnv, windowsWriteProject };

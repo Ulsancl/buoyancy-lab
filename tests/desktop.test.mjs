@@ -6,10 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { _electron as electron } from 'playwright';
 import { createProject, MAX_PROJECT_BYTES, PROJECT_SIZE_ERROR, serializeProject } from '../src/project.js';
+import { localPathRedactor } from './redact-local-paths.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,17 +31,7 @@ const defaultProfilePath = process.platform === 'win32' && process.env.APPDATA ?
 let app, page, saved, windowRestoration, gpu, failure, profileBefore, profileComparison;
 const state = () => page.evaluate(() => window.buoyancyLab.getState());
 const project = () => page.evaluate(() => window.buoyancyLab.project());
-const privateLocations = [defaultProfilePath, profile, root, os.homedir(), os.tmpdir()]
-  .filter(Boolean)
-  .flatMap(directory => [directory, directory.replaceAll('\\', '/'), pathToFileURL(directory).href])
-  .sort((a, b) => b.length - a.length);
-function redactText(value) {
-  for (const location of privateLocations) {
-    const escaped = location.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&');
-    value = value.replace(new RegExp(escaped, 'gi'), '[local path]');
-  }
-  return value;
-}
+const redactText = localPathRedactor([defaultProfilePath, profile, root, os.homedir(), os.tmpdir()]);
 const report = value => JSON.stringify(value, (_key, item) => typeof item === 'string' ? redactText(item) : item, 2);
 async function profileManifest(directory) {
   if (directory === null) return null;

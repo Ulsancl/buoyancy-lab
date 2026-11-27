@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { atomicWriteProject, WINDOWS_RETRY_DELAYS_MS } from '../desktop/atomic-save.cjs';
-import { windowsPowerShell } from '../desktop/windows-save.cjs';
+import { windowsPowerShell, windowsPowerShellEnv } from '../desktop/windows-save.cjs';
 
 const previous = '{"original":"보존할 실험"}', replacement = '{"replacement":"완료된 실험"}';
 const scratchRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'output', 'atomic-save-tests');
@@ -113,7 +113,7 @@ test('new project files are private and replacement preserves the Windows file D
   const runPowerShell = script => {
     const command = Buffer.from(script, 'utf16le').toString('base64');
     const result = spawnSync(windowsPowerShell(), ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
-      encoding: 'utf8', env: { ...process.env, BUOYANCY_FIXTURE: target, BUOYANCY_NEW_FIXTURE: privateTarget },
+      encoding: 'utf8', env: windowsPowerShellEnv({ BUOYANCY_FIXTURE: target, BUOYANCY_NEW_FIXTURE: privateTarget }),
     });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
@@ -122,12 +122,12 @@ test('new project files are private and replacement preserves the Windows file D
   if (process.platform === 'win32') {
     before = runPowerShell(`
       $ErrorActionPreference = 'Stop'
-      $acl = Get-Acl -LiteralPath $env:BUOYANCY_FIXTURE
+      $acl = [IO.File]::GetAccessControl($env:BUOYANCY_FIXTURE)
       $acl.SetAccessRuleProtection($true, $false)
       $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
       $acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($user, 'FullControl', 'Allow'))
-      Set-Acl -LiteralPath $env:BUOYANCY_FIXTURE -AclObject $acl
-      (Get-Acl -LiteralPath $env:BUOYANCY_FIXTURE).GetSecurityDescriptorSddlForm('Access')
+      [IO.File]::SetAccessControl($env:BUOYANCY_FIXTURE, $acl)
+      [IO.File]::GetAccessControl($env:BUOYANCY_FIXTURE).GetSecurityDescriptorSddlForm('Access')
     `);
     assert.match(before, /^D:P/);
   }
@@ -137,10 +137,10 @@ test('new project files are private and replacement preserves the Windows file D
   assert.equal(await fs.readFile(target, 'utf8'), replacement);
   assert.deepEqual((await fs.readdir(directory)).sort(), ['experiment.json', '새 실험.json']);
   if (process.platform === 'win32') {
-    const after = runPowerShell("(Get-Acl -LiteralPath $env:BUOYANCY_FIXTURE).GetSecurityDescriptorSddlForm('Access')");
+    const after = runPowerShell("[IO.File]::GetAccessControl($env:BUOYANCY_FIXTURE).GetSecurityDescriptorSddlForm('Access')");
     assert.equal(after, before);
     const isPrivate = runPowerShell(`
-      $acl = Get-Acl -LiteralPath $env:BUOYANCY_NEW_FIXTURE
+      $acl = [IO.File]::GetAccessControl($env:BUOYANCY_NEW_FIXTURE)
       $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
       $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
       $rules.Count -eq 1 -and $rules[0].IdentityReference -eq $user
